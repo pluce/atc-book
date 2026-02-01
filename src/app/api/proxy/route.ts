@@ -18,7 +18,7 @@ export async function GET(request: Request) {
 
   // 2. Filename must be a PDF and strictly a filename (no paths, no traversal)
   // Allows alphanumeric, underscores, dashes, dots. Must end in .pdf
-  if (!/^[a-zA-Z0-9_\-\.]+\.pdf$/i.test(filename) || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+  if (!/^[a-zA-Z0-9_\-\.\W]+\.pdf$/i.test(filename) || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
       return new NextResponse('Invalid Filename format', { status: 400 });
   }
 

@@ -1,9 +1,33 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { PDFDocument } from 'pdf-lib';
+import { useTranslation } from 'react-i18next';
+import '../lib/i18n';
+
+// Helper for retrying requests with exponential backoff & jitter
+async function fetchWithRetry(url: string, retries = 3, baseDelay = 1000): Promise<Response> {
+  let lastError: any;
+  
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) return response;
+      throw new Error(`HTTP error! status: ${response.status}`);
+    } catch (error) {
+      lastError = error;
+      if (i < retries) {
+        // Backoff: base * 2^attempt + random jitter (0-1000ms)
+        const delay = (baseDelay * Math.pow(2, i)) + (Math.random() * 1000);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError;
+}
 
 type Chart = {
   category: string;
@@ -15,6 +39,12 @@ type Chart = {
 };
 
 export default function Home() {
+  const { t, i18n } = useTranslation();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const pathname = usePathname();
+
+  const [mounted, setMounted] = useState(false);
   const [icao, setIcao] = useState('');
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -27,6 +57,14 @@ export default function Home() {
   const [selectedTags, setSelectedTags] = useState<Set<string>>(new Set());
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const changeLanguage = (lng: string) => {
+    i18n.changeLanguage(lng);
+  };
+
   const STATION_TAGS = ['DEL', 'GND', 'TWR', 'APP', 'DEP'];
   const STATION_RULES: Record<string, string[]> = {
     'DEL': ["Stationnement", "Carte d'aérodrome", "Départs (SID)"],
@@ -36,24 +74,30 @@ export default function Home() {
     'DEP': ["Départs (SID)"]
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (icao.length < 4) return;
-
+  const loadAirport = async (code: string, tags?: Set<string>, filter?: string) => {
+    if (code.length < 4) return;
+    
     setLoading(true);
     setError(null);
     setCharts([]);
     setSearchedIcao('');
     setSelectedUrls(new Set());
-    setFilterText('');
-    setSelectedTags(new Set());
+    
+    // Set filters immediately if provided, else reset them (except if tags/filter are explicitly passed as undefined it means keep them? No, we use explicit reset logic)
+    // Here we assume if provided (initial load) we set them. 
+    // If not provided (manual search), we reset them.
+    if (tags !== undefined) setSelectedTags(tags);
+    else setSelectedTags(new Set());
+    
+    if (filter !== undefined) setFilterText(filter);
+    else setFilterText('');
 
     try {
-      const res = await fetch(`/api/charts?icao=${icao}`);
+      const res = await fetch(`/api/charts?icao=${code}`);
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Une erreur est survenue');
+        throw new Error(data.error || t('error_fetch'));
       }
 
       setCharts(data.charts);
@@ -64,12 +108,49 @@ export default function Home() {
       
       setSelectedUrls(new Set(initialSelection));
       setSearchedIcao(data.icao);
+      setIcao(data.icao);
     } catch (err: any) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadAirport(icao);
+  };
+
+  // Sync state to URL
+  useEffect(() => {
+    if (!mounted || !searchedIcao) return;
+
+    const params = new URLSearchParams();
+    params.set('icao', searchedIcao);
+    
+    if (selectedTags.size > 0) {
+        params.set('tags', Array.from(selectedTags).join(','));
+    }
+    
+    if (filterText) {
+        params.set('q', filterText);
+    }
+
+    router.replace(`${pathname}?${params.toString()}`);
+  }, [searchedIcao, selectedTags, filterText, mounted, pathname, router]);
+
+  // Initial load from URL
+  useEffect(() => {
+     if (!searchParams) return;
+     const urlIcao = searchParams.get('icao');
+     const urlTags = searchParams.get('tags');
+     const urlQ = searchParams.get('q');
+
+     if (urlIcao && !searchedIcao && !loading) {
+         const tagsSet = urlTags ? new Set(urlTags.split(',')) : new Set<string>();
+         loadAirport(urlIcao, tagsSet, urlQ || '');
+     }
+  }, [searchParams]); // Dependent on searchParams to trigger on mount/nav
 
   const toggleChart = (url: string) => {
     const newSelected = new Set(selectedUrls);
@@ -93,27 +174,20 @@ export default function Home() {
     setSelectedUrls(newSelected);
   };
 
-  const getTagGroup = (tag: string) => {
-    if (STATION_TAGS.includes(tag)) return 'Poste';
-    if (/^\d{2}[LRC]?$/.test(tag)) return 'Pistes';
-    if (tag.startsWith('App.')) return 'Phases';
-    if (['ILS', 'LOC', 'RNAV', 'RNP', 'VPT', 'MVL', 'Nuit'].some(t => tag.includes(t))) return 'Approches';
-    return 'Autres';
+  const getTagGroupKey = (tag: string) => {
+    if (STATION_TAGS.includes(tag)) return 'group_stations';
+    if (/^\d{2}[LRC]?$/.test(tag)) return 'group_runways';
+    if (tag.startsWith('App.')) return 'group_phases';
+    if (['ILS', 'LOC', 'RNAV', 'RNP', 'VPT', 'MVL', 'Nuit'].some(t => tag.includes(t))) return 'group_approaches';
+    return 'group_others';
   };
 
   const toggleTag = (tag: string) => {
     const newTags = new Set(selectedTags);
-    const group = getTagGroup(tag);
-
+    
     if (newTags.has(tag)) {
         newTags.delete(tag);
     } else {
-        // Remove other tags from the same group
-        Array.from(newTags).forEach(t => {
-            if (getTagGroup(t) === group) {
-                newTags.delete(t);
-            }
-        });
         newTags.add(tag);
     }
     setSelectedTags(newTags);
@@ -121,23 +195,66 @@ export default function Home() {
 
   const groupTags = (tags: string[]) => {
     const groups: Record<string, string[]> = {
-      'Poste': [...STATION_TAGS],
-      'Pistes': [],
-      'Approches': [],
-      'Phases': [],
-      'Autres': []
+      'group_stations': [...STATION_TAGS],
+      'group_runways': [],
+      'group_approaches': [],
+      'group_phases': [],
+      'group_others': []
     };
     
     tags.forEach(tag => {
-      const g = getTagGroup(tag);
+      const g = getTagGroupKey(tag);
       if (groups[g]) groups[g].push(tag);
-      else groups['Autres'].push(tag);
+      else groups['group_others'].push(tag);
     });
     
     // Sort specific groups
-    groups['Pistes'].sort(); // Keep runways sorted alphanumerically
+    groups['group_runways'].sort(); // Keep runways sorted alphanumerically
     
     return groups;
+  };
+
+  const getCategoryLabel = (category: string) => {
+    const map: Record<string, string> = {
+      "Stationnement": "cat_parking",
+      "Carte d'aérodrome": "cat_aerodrome",
+      "Mouvements à la surface": "cat_ground_movements",
+      "Approche aux instruments": "cat_instrument_approach",
+      "Départs (SID)": "cat_sid",
+      "Arrivées (STAR)": "cat_star"
+    };
+
+    let label = category;
+    let translated = false;
+
+    // Try exact match
+    if (map[category]) {
+        return t(map[category]);
+    }
+
+    // Try partial match (starts with)
+    for (const [key, val] of Object.entries(map)) {
+      if (category.startsWith(key)) {
+        label = category.replace(key, t(val));
+        translated = true;
+        break;
+      }
+    }
+
+    // Replace specific words (like 'Piste') if present
+    // Note: This assumes the input string uses 'Piste' (French source)
+    if (label.includes('Piste')) {
+        label = label.replace(/Piste/g, t('word_runway'));
+    }
+
+    return label;
+  };
+
+  const getTagLabel = (tag: string) => {
+    if (tag === 'App. Finale') return t('tag_app_final');
+    if (tag === 'App. Initiale') return t('tag_app_initial');
+    if (tag === 'Nuit') return t('tag_night');
+    return tag;
   };
 
   // Filter charts
@@ -157,31 +274,33 @@ export default function Home() {
     if (selectedTags.size === 0) return matchesText;
 
     const activeTagsByGroup = {
-      'Poste': [] as string[],
-      'Pistes': [] as string[],
-      'Approches': [] as string[],
-      'Phases': [] as string[],
-      'Autres': [] as string[]
+      'group_stations': [] as string[],
+      'group_runways': [] as string[],
+      'group_approaches': [] as string[],
+      'group_phases': [] as string[],
+      'group_others': [] as string[]
     };
 
     Array.from(selectedTags).forEach(tag => {
-      const g = getTagGroup(tag);
+      const g = getTagGroupKey(tag);
       // @ts-ignore - dynamic key access
       if (activeTagsByGroup[g]) activeTagsByGroup[g].push(tag);
-      else activeTagsByGroup['Autres'].push(tag);
+      else activeTagsByGroup['group_others'].push(tag);
     });
 
     // Special handling for Station tags (filter by category, not tags)
-    // There should be only one station tag selected due to toggleTag logic, but robust check:
-    if (activeTagsByGroup['Poste'].length > 0) {
-        const stationTag = activeTagsByGroup['Poste'][0];
-        const allowedCategories = STATION_RULES[stationTag] || [];
-        const matchesStation = allowedCategories.some(prefix => chart.category.startsWith(prefix));
+    if (activeTagsByGroup['group_stations'].length > 0) {
+        // OR logic: matches if ANY of the selected station tags allows this category
+        const matchesStation = activeTagsByGroup['group_stations'].some(stationTag => {
+            const allowedCategories = STATION_RULES[stationTag] || [];
+            return allowedCategories.some(prefix => chart.category.startsWith(prefix));
+        });
+        
         if (!matchesStation) return false;
     }
 
     const matchesGroups = Object.keys(activeTagsByGroup).every(groupKey => {
-      if (groupKey === 'Poste') return true; // Handled separately above
+      if (groupKey === 'group_stations') return true; // Handled separately above
 
       // @ts-ignore
       const groupTags = activeTagsByGroup[groupKey];
@@ -214,9 +333,8 @@ export default function Home() {
         try {
           // Use our proxy to avoid CORS issues
           const proxyUrl = `/api/proxy?icao=${searchedIcao}&filename=${chart.filename}`;
-          const response = await fetch(proxyUrl);
+          const response = await fetchWithRetry(proxyUrl);
           
-          if (!response.ok) throw new Error('Network response was not ok');
           const blob = await response.blob();
           zip.file(chart.filename, blob);
         } catch (e) {
@@ -232,7 +350,7 @@ export default function Home() {
       
     } catch (err) {
       console.error('Error creating zip:', err);
-      setError('Erreur lors de la création du fichier ZIP.');
+      setError(t('error_zip'));
     } finally {
       setDownloading(false);
     }
@@ -258,9 +376,8 @@ export default function Home() {
         try {
           // Use our proxy to avoid CORS issues
           const proxyUrl = `/api/proxy?icao=${searchedIcao}&filename=${chart.filename}`;
-          const response = await fetch(proxyUrl);
+          const response = await fetchWithRetry(proxyUrl);
           
-          if (!response.ok) throw new Error(`Failed to fetch ${chart.filename}`);
           const arrayBuffer = await response.arrayBuffer();
           const pdf = await PDFDocument.load(arrayBuffer);
           const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
@@ -277,7 +394,7 @@ export default function Home() {
 
     } catch (err) {
       console.error('Error merging PDF:', err);
-      setError('Erreur lors de la fusion des PDF.');
+      setError(t('error_merge'));
     } finally {
       setMerging(false);
     }
@@ -295,15 +412,34 @@ export default function Home() {
   const availableTags = Array.from(new Set(charts.flatMap(c => c.tags || []))).sort();
   const groupedTags = groupTags(availableTags);
 
+  if (!mounted) return null; // Avoid hydration mismatch
+
   return (
-    <main className="min-h-screen bg-slate-900 text-slate-100 p-8 font-sans">
+    <main className="min-h-screen bg-slate-900 text-slate-100 p-8 font-sans relative">
+      <div className="absolute top-4 left-4 z-50 flex gap-2">
+           <button 
+             onClick={() => changeLanguage('fr')} 
+             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'fr' ? 'bg-blue-600 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+             title="Français"
+           >
+             🇫🇷
+           </button>
+           <button 
+             onClick={() => changeLanguage('en')} 
+             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'en' ? 'bg-blue-600 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+             title="English"
+           >
+             🇬🇧
+           </button>
+      </div>
+
       <div className="max-w-6xl mx-auto space-y-8">
         <header className="text-center space-y-4">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             ATC BOOK
           </h1>
           <p className="text-slate-400">
-            Récupérez instantanément les cartes du SIA pour vos sessions VATSIM.
+            {t('subtitle')}
           </p>
         </header>
 
@@ -311,7 +447,7 @@ export default function Home() {
           <form onSubmit={handleSubmit} className="flex gap-4 items-end sm:items-stretch flex-col sm:flex-row">
             <div className="flex-1 space-y-2 w-full">
               <label htmlFor="icao" className="block text-sm font-medium text-slate-300">
-                Code ICAO (ex: LFPG)
+                {t('search_label')}
               </label>
               <input
                 type="text"
@@ -319,7 +455,7 @@ export default function Home() {
                 value={icao}
                 onChange={(e) => setIcao(e.target.value.toUpperCase())}
                 className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all placeholder-slate-600"
-                placeholder="LF..."
+                placeholder={t('search_placeholder')}
                 maxLength={4}
                 required
               />
@@ -330,9 +466,9 @@ export default function Home() {
               className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[150px] w-full sm:w-auto"
             >
               {loading ? (
-                <span className="animate-pulse">Recherche...</span>
+                <span className="animate-pulse">{t('searching')}</span>
               ) : (
-                'Rechercher'
+                t('search_button')
               )}
             </button>
           </form>
@@ -351,15 +487,15 @@ export default function Home() {
                     <div className="p-4 flex items-center justify-between gap-4">
                         <div className="flex-1 min-w-0">
                             <h2 className="text-xl md:text-2xl font-bold text-white truncate">
-                            Résultats pour <span className="text-blue-400">{searchedIcao}</span>
+                            {t('results_title')} <span className="text-blue-400">{searchedIcao}</span>
                             </h2>
                             <div className="flex items-center gap-2 text-xs md:text-sm text-slate-400 mt-1">
                                 <span>
-                                {filteredCharts.length} carte{filteredCharts.length > 1 ? 's' : ''} visible{filteredCharts.length > 1 ? 's' : ''}
+                                {t('visible_charts_plural', { count: filteredCharts.length })}
                                 </span>
                                 <span className="hidden md:inline">|</span>
                                 <span className="text-blue-300 font-medium">
-                                {selectedUrls.size} sélectionnée{selectedUrls.size > 1 ? 's' : ''}
+                                {t('selected_charts_plural', { count: selectedUrls.size })}
                                 </span>
                             </div>
                         </div>
@@ -370,13 +506,13 @@ export default function Home() {
                                     onClick={() => handleSelectVisible(true)}
                                     className="px-3 py-1.5 text-xs font-medium text-blue-300 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800/50 rounded-lg transition-colors whitespace-nowrap"
                                 >
-                                    Tout cocher
+                                    {t('select_all')}
                                 </button>
                                 <button
                                     onClick={() => handleSelectVisible(false)}
                                     className="px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors whitespace-nowrap"
                                 >
-                                    Tout décocher
+                                    {t('deselect_all')}
                                 </button>
                             </div>
                             
@@ -394,14 +530,14 @@ export default function Home() {
                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
-                                        <span>Fusion...</span>
+                                        <span>{t('merging')}</span>
                                         </>
                                     ) : (
                                         <>
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                                             <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
                                         </svg>
-                                        <span>PDF Unique</span>
+                                        <span>{t('merge_button')}</span>
                                         </>
                                     )}
                                 </button>
@@ -417,14 +553,14 @@ export default function Home() {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    <span>Zip...</span>
+                                    <span>{t('zipping')}</span>
                                     </>
                                 ) : (
                                     <>
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                                         <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
                                     </svg>
-                                    <span>ZIP</span>
+                                    <span>{t('zip_button')}</span>
                                     </>
                                 )}
                                 </button>
@@ -457,13 +593,13 @@ export default function Home() {
                                         onClick={() => handleSelectVisible(true)}
                                         className="px-3 py-1.5 text-xs font-medium text-blue-300 bg-blue-900/30 hover:bg-blue-900/50 border border-blue-800/50 rounded-lg transition-colors whitespace-nowrap"
                                     >
-                                        Tout cocher
+                                        {t('select_all')}
                                     </button>
                                     <button
                                         onClick={() => handleSelectVisible(false)}
                                         className="px-3 py-1.5 text-xs font-medium text-slate-400 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors whitespace-nowrap"
                                     >
-                                        Tout décocher
+                                        {t('deselect_all')}
                                     </button>
                                 </div>
                                 
@@ -481,14 +617,14 @@ export default function Home() {
                                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                             </svg>
-                                            <span>Fusion...</span>
+                                            <span>{t('merging')}</span>
                                             </>
                                         ) : (
                                             <>
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                                                 <path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4z" clipRule="evenodd" />
                                             </svg>
-                                            <span>PDF Unique</span>
+                                            <span>{t('merge_button')}</span>
                                             </>
                                         )}
                                     </button>
@@ -504,14 +640,14 @@ export default function Home() {
                                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                         </svg>
-                                        <span>Zip...</span>
+                                        <span>{t('zipping')}</span>
                                         </>
                                     ) : (
                                         <>
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                                             <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
                                         </svg>
-                                        <span>ZIP</span>
+                                        <span>{t('zip_button')}</span>
                                         </>
                                     )}
                                     </button>
@@ -522,7 +658,7 @@ export default function Home() {
                             <div className="relative">
                                 <input
                                     type="text"
-                                    placeholder="Filtrer les cartes (ex: ILS 26, Parking...)"
+                                    placeholder={t('filter_placeholder')}
                                     value={filterText}
                                     onChange={(e) => setFilterText(e.target.value)}
                                     className="w-full bg-slate-900/50 md:bg-slate-800/90 border border-slate-600 rounded-lg pl-10 pr-4 py-3 focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all placeholder-slate-500 text-slate-200"
@@ -547,33 +683,36 @@ export default function Home() {
                                 <div className="flex flex-col gap-3 rounded-xl">
                                     <div className="flex flex-wrap items-center gap-2">
                                     {/* Render groups in order */}
-                                    {['Poste', 'Pistes', 'Approches', 'Phases', 'Autres'].map((groupKey, idx, arr) => {
+                                    {['group_stations', 'group_runways', 'group_approaches', 'group_phases', 'group_others'].map((groupKey, idx, arr) => {
                                         // @ts-ignore
                                         const tags = groupedTags[groupKey];
                                         if (!tags || tags.length === 0) return null;
                                         
                                         return (
                                             <div key={groupKey} className="flex flex-wrap items-center gap-2">
-                                            {tags.map((tag: string) => {
-                                                const isSelected = selectedTags.has(tag);
-                                                return (
-                                                    <button 
-                                                    key={tag}
-                                                    onClick={() => toggleTag(tag)}
-                                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all select-none
-                                                        ${isSelected 
-                                                        ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/50' 
-                                                        : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200 hover:border-slate-600'}
-                                                    `}
-                                                    >
-                                                    {tag}
-                                                    </button>
-                                                );
-                                            })}
-                                            {/* Separator if not last group */}
-                                            {idx < arr.length - 1 && groupedTags[arr[idx+1]]?.length > 0 && (
-                                                <div className="w-px h-6 bg-slate-600 mx-2 hidden md:block"></div>
-                                            )}
+                                                <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider mr-1">
+                                                    {t(groupKey)}
+                                                </span>
+                                                {tags.map((tag: string) => {
+                                                    const isSelected = selectedTags.has(tag);
+                                                    return (
+                                                        <button 
+                                                        key={tag}
+                                                        onClick={() => toggleTag(tag)}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all select-none
+                                                            ${isSelected 
+                                                            ? 'bg-blue-600 border-blue-500 text-white shadow-lg shadow-blue-900/50' 
+                                                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200 hover:border-slate-600'}
+                                                        `}
+                                                        >
+                                                        {getTagLabel(tag)}
+                                                        </button>
+                                                    );
+                                                })}
+                                                {/* Separator if not last group */}
+                                                {idx < arr.length - 1 && groupedTags[arr[idx+1]]?.length > 0 && (
+                                                    <div className="w-px h-6 bg-slate-600 mx-2 hidden md:block"></div>
+                                                )}
                                             </div>
                                         );
                                     })}
@@ -596,7 +735,7 @@ export default function Home() {
                           onChange={() => toggleGroup(groupCharts)}
                           className="w-5 h-5 rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-slate-800 cursor-pointer"
                         />
-                      <h3 className="text-xl font-semibold text-blue-300">{category}</h3>
+                      <h3 className="text-xl font-semibold text-blue-300">{getCategoryLabel(category)}</h3>
                       <span className="text-sm text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
                         {groupCharts.length}
                       </span>
@@ -631,7 +770,7 @@ export default function Home() {
                                 <div className="flex justify-between items-start gap-2">
                                   <h4 className={`font-semibold leading-snug truncate ${isSelected ? 'text-white' : 'text-slate-300'} group-hover:text-blue-200`}>
                                   {(!chart.subtitle || chart.subtitle.toLowerCase().trim() === chart.category.toLowerCase().trim()) 
-                                    ? chart.category 
+                                    ? getCategoryLabel(chart.category) 
                                     : chart.subtitle}
                                   </h4>
                                   {chart.page && (
@@ -645,7 +784,7 @@ export default function Home() {
                                   <div className="flex flex-wrap gap-1 mt-1.5">
                                     {chart.tags.map(tag => (
                                       <span key={tag} className="text-[9px] uppercase tracking-wide font-semibold bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700/50">
-                                        {tag}
+                                        {getTagLabel(tag)}
                                       </span>
                                     ))}
                                   </div>
@@ -687,7 +826,7 @@ export default function Home() {
               </div>
             ) : (
               <div className="text-center py-12 text-slate-500 bg-slate-800/30 rounded-xl border-2 border-dashed border-slate-700">
-                <p>Aucune carte trouvée pour cet aérodrome.</p>
+                <p>{t('no_results')}</p>
               </div>
             )}
           </section>
@@ -697,7 +836,7 @@ export default function Home() {
       <footer className="mt-12 py-6 border-t border-slate-700/50">
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-slate-400 text-sm">
           <div className="flex items-center gap-2">
-            <span>Réalisé par</span>
+            <span>{t('footer_credits')}</span>
             <a 
               href="https://youtube.com/channel/UCoeiQSBuqp3oFpK16nQT1_Q/" 
               target="_blank" 
