@@ -461,6 +461,10 @@ function SearchPage() {
             </button>
           </form>
 
+          <p className="mt-4 text-xs text-slate-500 text-center">
+            {t('supported_airports_hint')}
+          </p>
+
           {error && (
             <div className="mt-6 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg animate-fade-in text-center">
               ⚠️ {error}

@@ -54,6 +54,7 @@ i18n
           tag_app_final: "App. Finale",
           tag_app_initial: "App. Initiale",
           tag_night: "Nuit",
+          supported_airports_hint: "Aéroports IFR en France (SIA) et au Royaume-Uni (NATS) disponibles.",
 
           // Common words
           word_runway: "Piste"
@@ -101,6 +102,7 @@ i18n
           tag_app_final: "Final App.",
           tag_app_initial: "Initial App.",
           tag_night: "Night",
+          supported_airports_hint: "IFR airports in France (SIA) and United-Kingdom (NATS) available.",
 
           // Common words
           word_runway: "Runway"
