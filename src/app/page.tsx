@@ -67,11 +67,11 @@ function SearchPage() {
 
   const STATION_TAGS = ['DEL', 'GND', 'TWR', 'APP', 'DEP'];
   const STATION_RULES: Record<string, string[]> = {
-    'DEL': ["Stationnement", "Carte d'aérodrome", "Départs (SID)"],
-    'GND': ["Stationnement", "Carte d'aérodrome", "Mouvements à la surface"],
-    'TWR': ["Mouvements à la surface", "Carte d'aérodrome", "Approche aux instruments", "Départs (SID)"],
-    'APP': ["Arrivées (STAR)", "Approche aux instruments"],
-    'DEP': ["Départs (SID)"]
+    'DEL': ["PARKING", "AERODROME", "SID"],
+    'GND': ["PARKING", "AERODROME", "GROUND"],
+    'TWR': ["GROUND", "AERODROME", "IAC", "SID", "VAC", "VLC"],
+    'APP': ["STAR", "IAC"],
+    'DEP': ["SID"]
   };
 
   const loadAirport = async (code: string, tags?: Set<string>, filter?: string) => {
@@ -216,38 +216,18 @@ function SearchPage() {
 
   const getCategoryLabel = (category: string) => {
     const map: Record<string, string> = {
-      "Stationnement": "cat_parking",
-      "Carte d'aérodrome": "cat_aerodrome",
-      "Mouvements à la surface": "cat_ground_movements",
-      "Approche aux instruments": "cat_instrument_approach",
-      "Départs (SID)": "cat_sid",
-      "Arrivées (STAR)": "cat_star"
+      "PARKING": "cat_parking",
+      "AERODROME": "cat_aerodrome",
+      "GROUND": "cat_ground_movements",
+      "IAC": "cat_instrument_approach",
+      "SID": "cat_sid",
+      "STAR": "cat_star",
+      "VAC": "VAC",
+      "VLC": "VLC",
+      "TEM": "TEM"
     };
 
-    let label = category;
-    let translated = false;
-
-    // Try exact match
-    if (map[category]) {
-        return t(map[category]);
-    }
-
-    // Try partial match (starts with)
-    for (const [key, val] of Object.entries(map)) {
-      if (category.startsWith(key)) {
-        label = category.replace(key, t(val));
-        translated = true;
-        break;
-      }
-    }
-
-    // Replace specific words (like 'Piste') if present
-    // Note: This assumes the input string uses 'Piste' (French source)
-    if (label.includes('Piste')) {
-        label = label.replace(/Piste/g, t('word_runway'));
-    }
-
-    return label;
+    return map[category] ? t(map[category]) : category;
   };
 
   const getTagLabel = (tag: string) => {
@@ -293,7 +273,7 @@ function SearchPage() {
         // OR logic: matches if ANY of the selected station tags allows this category
         const matchesStation = activeTagsByGroup['group_stations'].some(stationTag => {
             const allowedCategories = STATION_RULES[stationTag] || [];
-            return allowedCategories.some(prefix => chart.category.startsWith(prefix));
+            return allowedCategories.includes(chart.category);
         });
         
         if (!matchesStation) return false;
