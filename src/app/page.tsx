@@ -10,7 +10,7 @@ import '../lib/i18n';
 
 // Helper for retrying requests with exponential backoff & jitter
 async function fetchWithRetry(url: string, retries = 3, baseDelay = 1000): Promise<Response> {
-  let lastError: any;
+  let lastError: unknown;
   
   for (let i = 0; i <= retries; i++) {
     try {
@@ -46,6 +46,9 @@ function SearchPage() {
 
   const [mounted, setMounted] = useState(false);
   const [icao, setIcao] = useState('');
+  // Source is locally derived but we keep state if needed for UI later, currently automated
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [source, setSource] = useState('SIA');
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [merging, setMerging] = useState(false);
@@ -92,8 +95,12 @@ function SearchPage() {
     if (filter !== undefined) setFilterText(filter);
     else setFilterText('');
 
+    // Determine source based on ICAO prefix
+    const derivedSource = code.toUpperCase().startsWith('EG') ? 'UK' : 'SIA';
+    setSource(derivedSource);
+
     try {
-      const res = await fetch(`/api/charts?icao=${code}`);
+      const res = await fetch(`/api/charts?icao=${code}&source=${derivedSource}`);
       const data = await res.json();
 
       if (!res.ok) {
@@ -107,10 +114,9 @@ function SearchPage() {
         .map((c: Chart) => c.url);
       
       setSelectedUrls(new Set(initialSelection));
-      setSearchedIcao(data.icao);
-      setIcao(data.icao);
-    } catch (err: any) {
-      setError(err.message);
+      setSearchedIcao(code);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -150,6 +156,7 @@ function SearchPage() {
          const tagsSet = urlTags ? new Set(urlTags.split(',')) : new Set<string>();
          loadAirport(urlIcao, tagsSet, urlQ || '');
      }
+     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]); // Dependent on searchParams to trigger on mount/nav
 
   const toggleChart = (url: string) => {
@@ -178,7 +185,7 @@ function SearchPage() {
     if (STATION_TAGS.includes(tag)) return 'group_stations';
     if (/^\d{2}[LRC]?$/.test(tag)) return 'group_runways';
     if (tag.startsWith('App.')) return 'group_phases';
-    if (['ILS', 'LOC', 'RNAV', 'RNP', 'VPT', 'MVL', 'Nuit'].some(t => tag.includes(t))) return 'group_approaches';
+    if (['ILS', 'LOC', 'RNAV', 'RNP', 'VPT', 'MVL', 'Nuit', 'DME'].some(t => tag.includes(t))) return 'group_approaches';
     return 'group_others';
   };
 
@@ -262,8 +269,7 @@ function SearchPage() {
     };
 
     Array.from(selectedTags).forEach(tag => {
-      const g = getTagGroupKey(tag);
-      // @ts-ignore - dynamic key access
+      const g = getTagGroupKey(tag) as keyof typeof activeTagsByGroup;
       if (activeTagsByGroup[g]) activeTagsByGroup[g].push(tag);
       else activeTagsByGroup['group_others'].push(tag);
     });
@@ -279,10 +285,10 @@ function SearchPage() {
         if (!matchesStation) return false;
     }
 
-    const matchesGroups = Object.keys(activeTagsByGroup).every(groupKey => {
+    const matchesGroups = Object.keys(activeTagsByGroup).every(key => {
+      const groupKey = key as keyof typeof activeTagsByGroup;
       if (groupKey === 'group_stations') return true; // Handled separately above
 
-      // @ts-ignore
       const groupTags = activeTagsByGroup[groupKey];
       if (groupTags.length === 0) return true; // No filter for this group -> Pass
       // OR logic within group: chart must have AT LEAST ONE of the tags in this group
@@ -312,7 +318,7 @@ function SearchPage() {
       const downloadPromises = chartsToDownload.map(async (chart) => {
         try {
           // Use our proxy to avoid CORS issues
-          const proxyUrl = `/api/proxy?icao=${searchedIcao}&filename=${chart.filename}`;
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(chart.url)}`;
           const response = await fetchWithRetry(proxyUrl);
           
           const blob = await response.blob();
@@ -355,7 +361,7 @@ function SearchPage() {
       for (const chart of sortedCharts) {
         try {
           // Use our proxy to avoid CORS issues
-          const proxyUrl = `/api/proxy?icao=${searchedIcao}&filename=${chart.filename}`;
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(chart.url)}`;
           const response = await fetchWithRetry(proxyUrl);
           
           const arrayBuffer = await response.arrayBuffer();
@@ -429,16 +435,18 @@ function SearchPage() {
               <label htmlFor="icao" className="block text-sm font-medium text-slate-300">
                 {t('search_label')}
               </label>
-              <input
-                type="text"
-                id="icao"
-                value={icao}
-                onChange={(e) => setIcao(e.target.value.toUpperCase())}
-                className="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all placeholder-slate-600"
-                placeholder={t('search_placeholder')}
-                maxLength={4}
-                required
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  id="icao"
+                  value={icao}
+                  onChange={(e) => setIcao(e.target.value.toUpperCase())}
+                  className="flex-1 w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all placeholder-slate-600"
+                  placeholder={t('search_placeholder')}
+                  maxLength={4}
+                  required
+                />
+              </div>
             </div>
             <button
               type="submit"
@@ -664,7 +672,6 @@ function SearchPage() {
                                     <div className="flex flex-wrap items-center gap-2">
                                     {/* Render groups in order */}
                                     {['group_stations', 'group_runways', 'group_approaches', 'group_phases', 'group_others'].map((groupKey, idx, arr) => {
-                                        // @ts-ignore
                                         const tags = groupedTags[groupKey];
                                         if (!tags || tags.length === 0) return null;
                                         

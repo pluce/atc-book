@@ -41,10 +41,11 @@ export async function GET(request: Request) {
       charts 
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('API Error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Erreur serveur.';
     return NextResponse.json(
-      { error: error.message || 'Erreur serveur.' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

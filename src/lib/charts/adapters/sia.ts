@@ -174,8 +174,8 @@ export class SIAAdapter implements ChartProvider {
   }
 
   private extractSubtitle(filename: string, icao: string, code: string): { subtitle: string, page?: string } {
-      let cleanName = filename.replace('.pdf', '');
-      let parts = cleanName.split('_');
+      const cleanName = filename.replace('.pdf', '');
+      const parts = cleanName.split('_');
       let pageInfo = '';
 
       // Ignore structural parts

@@ -1,33 +1,34 @@
 import { NextResponse } from 'next/server';
 
+const ALLOWED_DOMAINS = [
+  'www.sia.aviation-civile.gouv.fr',
+  'www.aurora.nats.co.uk'
+];
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const icao = searchParams.get('icao');
-  const filename = searchParams.get('filename');
+  const targetUrl = searchParams.get('url');
 
-  if (!icao || !filename) {
-    return new NextResponse('Missing ICAO or Filename', { status: 400 });
+  if (!targetUrl) {
+    return new NextResponse('Missing URL parameter', { status: 400 });
   }
 
-  // SECURITY: Input Validation
-  // 1. ICAO must be exactly 4 alphanumeric characters
-  const cleanIcao = icao.toUpperCase();
-  if (!/^[A-Z0-9]{4}$/.test(cleanIcao)) {
-      return new NextResponse('Invalid ICAO format', { status: 400 });
+  let parsedUrl: URL;
+  try {
+      parsedUrl = new URL(targetUrl);
+  } catch {
+      return new NextResponse('Invalid URL', { status: 400 });
   }
 
-  // 2. Filename must be a PDF and strictly a filename (no paths, no traversal)
-  // Allows alphanumeric, underscores, dashes, dots. Must end in .pdf
-  if (!/^[a-zA-Z0-9_\-\.\W]+\.pdf$/i.test(filename) || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
-      return new NextResponse('Invalid Filename format', { status: 400 });
+  // SECURITY: Whitelist Domain Check
+  if (!ALLOWED_DOMAINS.includes(parsedUrl.hostname)) {
+      return new NextResponse(`Domain not allowed: ${parsedUrl.hostname}`, { status: 403 });
   }
 
-  const cycleName = process.env.NEXT_PUBLIC_AIRAC_CYCLE_NAME || 'eAIP_22_JAN_2026';
-  const airacDate = process.env.NEXT_PUBLIC_AIRAC_DATE || 'AIRAC-2026-01-22';
-  
-  // Reconstruct URL
-  // https://www.sia.aviation-civile.gouv.fr/media/dvd/eAIP_22_JAN_2026/FRANCE/AIRAC-2026-01-22/html/eAIP/Cartes/LFPO/AD_2_LFPO_ADC_02.pdf
-  const targetUrl = `https://www.sia.aviation-civile.gouv.fr/media/dvd/${cycleName}/FRANCE/${airacDate}/html/eAIP/Cartes/${cleanIcao}/${filename}`;
+  // SECURITY: Filename Check (Must be PDF)
+  if (!parsedUrl.pathname.toLowerCase().endsWith('.pdf')) {
+      return new NextResponse('Target must be a PDF', { status: 400 });
+  }
 
   try {
     const response = await fetch(targetUrl);
@@ -37,15 +38,12 @@ export async function GET(request: Request) {
     }
 
     const data = await response.arrayBuffer();
-
-    // On transfère les headers pertinents
     const headers = new Headers();
-    headers.set('Content-Type', response.headers.get('Content-Type') || 'application/pdf');
-    if (response.headers.get('Content-Length')) {
-        headers.set('Content-Length', response.headers.get('Content-Length')!);
-    }
-    // Cache control pour éviter de re-fetcher constamment
+    headers.set('Content-Type', 'application/pdf');
     headers.set('Cache-Control', 'public, max-age=3600');
+    // Forward Content-Length if available
+    const len = response.headers.get('Content-Length');
+    if (len) headers.set('Content-Length', len);
 
     return new NextResponse(data, {
         status: 200,
