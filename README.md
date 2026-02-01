@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# VaccFR Book
 
-## Getting Started
+Outil simple pour récupérer les cartes aéronautiques (SIA France) pour la simulation aérienne (VATSIM/IVAO).
 
-First, run the development server:
+## Fonctionnalités
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Recherche par code OACI (ex: LFPG, LFPO).
+- Récupération automatique des liens PDF depuis le site du SIA (eAIP AIRAC courant).
+- Interface moderne et sombre (Dark Mode).
+- Liens directs vers les PDFs officiels.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Installation
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1.  Cloner le dépôt.
+2.  Installer les dépendances :
+    ```bash
+    npm install
+    ```
+3.  Lancer le serveur de développement :
+    ```bash
+    npm run dev
+    ```
+4.  Ouvrir [http://localhost:3000](http://localhost:3000).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Déploiement sur Vercel
 
-## Learn More
+Ce projet est optimisé pour Vercel.
 
-To learn more about Next.js, take a look at the following resources:
+1.  Poussez le code sur GitHub/GitLab/Bitbucket.
+2.  Importez le projet dans Vercel.
+3.  Le déploiement est automatique.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Technologies
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Next.js 14 (App Router)
+- Tailwind CSS
+- Cheerio (Parsing HTML)
+- TypeScript
