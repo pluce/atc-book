@@ -82,7 +82,7 @@ export async function GET(request: Request) {
     const airportRunways = new Set<string>();
     rawFiles.forEach(href => {
         const filename = href.split('/').pop() || '';
-        extractRunways(filename).forEach(r => airportRunways.add(r));
+        extractRunways(decodeURIComponent(filename)).forEach(r => airportRunways.add(r));
     });
 
     // Clean up runways: remove generic number if specific L/R/C exists
@@ -103,9 +103,10 @@ export async function GET(request: Request) {
     rawFiles.forEach((href) => {
       if (href) {
         const filename = href.split('/').pop() || '';
+        const decodedFilename = decodeURIComponent(filename);
 
         // Exclusions explicites (Données textuelles, tableaux, etc.) + Demande utilisateur (VPE, PATC)
-        if (filename.includes('_DATA_') || filename.includes('_TEXT_') || filename.includes('_TXT_') || filename.includes('_VPE_') || filename.includes('_PATC_')) {
+        if (decodedFilename.includes('_DATA_') || decodedFilename.includes('_TEXT_') || decodedFilename.includes('_TXT_') || decodedFilename.includes('_VPE_') || decodedFilename.includes('_PATC_')) {
           return; // On passe au suivant
         }
         
@@ -116,7 +117,7 @@ export async function GET(request: Request) {
         for (const [code, label] of Object.entries(CHART_TYPES)) {
           // On cherche _CODE_ ou _CODE.pdf ou similaire. 
           // Ex: AD_2_LFPG_SID_...
-          if (filename.includes(`_${code}_`) || filename.includes(`_${code}.`)) {
+          if (decodedFilename.includes(`_${code}_`) || decodedFilename.includes(`_${code}.`)) {
             matchedCode = code;
             matchedCategory = label;
             break; 
@@ -128,46 +129,50 @@ export async function GET(request: Request) {
 
           // TAG GENERATION
           const tags: string[] = [];
-          
+
           // Specific IAC tags
           if (matchedCode === 'IAC') {
-              if (filename.includes('_FNA')) tags.push("App. Finale");
-              if (filename.includes('_INA')) tags.push("App. Initiale");
-              if (filename.includes('_VPT')) tags.push("VPT");
-              if (filename.includes('_MVL')) tags.push("MVL");
+              if (decodedFilename.includes('_FNA')) tags.push("App. Finale");
+              if (decodedFilename.includes('_INA')) tags.push("App. Initiale");
+              if (decodedFilename.includes('_VPT')) tags.push("VPT");
+              if (decodedFilename.includes('_MVL')) tags.push("MVL");
           }
           
           // General tags
-          if (filename.includes('_NIGHT')) tags.push("Nuit");
-          if (filename.includes('_RNAV')) tags.push("RNAV");
-          if (filename.includes('_RNP')) tags.push("RNP");
+          if (decodedFilename.includes('_NIGHT')) tags.push("Nuit");
+          if (decodedFilename.includes('_RNAV')) tags.push("RNAV");
+          if (decodedFilename.includes('_RNP')) tags.push("RNP");
           
-          if (filename.includes('ILS_CAT_I_II_III')) tags.push("ILS I/II/III"); 
-          else if (filename.includes('ILS_CAT_I_II')) tags.push("ILS I/II");
-          else if (filename.includes('ILS_CAT_I')) tags.push("ILS I");
-          else if (filename.includes('_ILS_CAT123')) tags.push("ILS I/II/III"); // Alternative naming if exists
-          else if (filename.includes('_ILS_CAT12')) tags.push("ILS I/II");
-          else if (filename.includes('_ILS_CAT1')) tags.push("ILS I");
-          else if (filename.includes('_ILS')) tags.push("ILS");
+          // ILS Category Detection via Regex to handle variations (CAT_123, CAT 1 2 3, CAT I II III)
+          // Matches "CAT" followed by separator, then combinations of 1/2/3 or I/II/III
+          // Use [\W_]* to allow multiple separators like "_ " or " " or "_"
+          const catFullRegex = /(?:_| |^)CAT[\W_]*(?:1(?:_| |)?2(?:_| |)?3|I(?:_| |)?II(?:_| |)?III|123)(?:_| |\.|$)/i;
+          const catTwoRegex = /(?:_| |^)CAT[\W_]*(?:1(?:_| |)?2|I(?:_| |)?II|12)(?:_| |\.|$)/i;
+          const catOneRegex = /(?:_| |^)CAT[\W_]*(?:1|I)(?:_| |\.|$)/i;
+
+          if (catFullRegex.test(decodedFilename)) tags.push("ILS I/II/III"); 
+          else if (catTwoRegex.test(decodedFilename)) tags.push("ILS I/II");
+          else if (catOneRegex.test(decodedFilename)) tags.push("ILS I");
+          else if (decodedFilename.includes('_ILS')) tags.push("ILS");
           
-          if (filename.includes('_LOC')) tags.push("LOC");
+          if (decodedFilename.includes('_LOC')) tags.push("LOC");
 
           // Runways Tags
           
           // 1. Explicit runways matching known airport runways
-          extractRunways(filename).forEach(r => {
+          extractRunways(decodedFilename).forEach(r => {
              if (!tags.includes(r)) tags.push(r);
           });
 
           // 2. Groups (ALL, WEST, EAST...)
-          if (/RWY[_ -]?(ALL|TOUTES)/i.test(filename)) {
+          if (/RWY[_ -]?(ALL|TOUTES)/i.test(decodedFilename)) {
               sortedRunways.forEach(r => {
                   if (!tags.includes(r)) tags.push(r);
               });
           }
           
           // Rule: WEST -> QFU 0-180
-          if (/RWY[_ -]?WEST/i.test(filename)) {
+          if (/RWY[_ -]?WEST/i.test(decodedFilename)) {
               sortedRunways.forEach(r => {
                   const qfu = parseInt(r.substring(0, 2)) * 10;
                   if (qfu > 0 && qfu <= 180) {
@@ -177,7 +182,7 @@ export async function GET(request: Request) {
           }
           
           // Rule: EAST -> QFU 180-360
-          if (/RWY[_ -]?EAST/i.test(filename)) {
+          if (/RWY[_ -]?EAST/i.test(decodedFilename)) {
               sortedRunways.forEach(r => {
                   const qfu = parseInt(r.substring(0, 2)) * 10;
                   if (qfu > 180 && qfu <= 360) {
@@ -187,7 +192,7 @@ export async function GET(request: Request) {
           }
           
            // Rule: NORTH -> QFU 270-090
-          if (/RWY[_ -]?NORTH/i.test(filename)) {
+          if (/RWY[_ -]?NORTH/i.test(decodedFilename)) {
               sortedRunways.forEach(r => {
                   const qfu = parseInt(r.substring(0, 2)) * 10;
                   if (qfu >= 270 || qfu <= 90) {
@@ -197,7 +202,7 @@ export async function GET(request: Request) {
           }
 
           // Rule: SOUTH -> QFU 90-270
-          if (/RWY[_ -]?SOUTH/i.test(filename)) {
+          if (/RWY[_ -]?SOUTH/i.test(decodedFilename)) {
               sortedRunways.forEach(r => {
                   const qfu = parseInt(r.substring(0, 2)) * 10;
                   if (qfu >= 90 && qfu <= 270) {
@@ -210,7 +215,7 @@ export async function GET(request: Request) {
           // Ex: AD_2_LFBO_SID_RWY32L-32R_RNAV_INSTR_02.pdf
           // On veut: RWY32L-32R RNAV INSTR
           
-          let cleanName = filename.replace('.pdf', '');
+          let cleanName = decodedFilename.replace('.pdf', '');
           let parts = cleanName.split('_');
 
           let runwaySuffix = '';
