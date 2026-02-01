@@ -31,7 +31,7 @@ export default function Home() {
   const STATION_RULES: Record<string, string[]> = {
     'DEL': ["Stationnement", "Carte d'aérodrome", "Départs (SID)"],
     'GND': ["Stationnement", "Carte d'aérodrome", "Mouvements à la surface"],
-    'TWR': ["Mouvements à la surface", "Carte d'aérodrome", "Approche aux instruments"],
+    'TWR': ["Mouvements à la surface", "Carte d'aérodrome", "Approche aux instruments", "Départs (SID)"],
     'APP': ["Arrivées (STAR)", "Approche aux instruments"],
     'DEP': ["Départs (SID)"]
   };
