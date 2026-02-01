@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "ATC BOOK",
-  description: "Récupérez instantanément les cartes du SIA pour vos sessions VATSIM",
+  description: "Récupérez instantanément les cartes aéronautiques pour vos sessions VATSIM",
 };
 
 export default function RootLayout({

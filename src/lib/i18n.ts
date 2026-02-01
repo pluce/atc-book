@@ -14,7 +14,7 @@ i18n
     resources: {
       fr: {
         translation: {
-          subtitle: "Récupérez instantanément les cartes du SIA pour vos sessions VATSIM.",
+          subtitle: "Récupérez instantanément les cartes aéronautiques pour vos sessions VATSIM.",
           search_label: "Code ICAO (ex: LFPG)",
           search_placeholder: "LF...",
           search_button: "Rechercher",
@@ -61,7 +61,7 @@ i18n
       },
       en: {
         translation: {
-          subtitle: "Instantly retrieve SIA charts for your VATSIM sessions.",
+          subtitle: "Instantly retrieve aeronautical charts for your VATSIM sessions.",
           search_label: "ICAO Code (e.g. LFPG)",
           search_placeholder: "LF...",
           search_button: "Search",
