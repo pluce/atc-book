@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
@@ -38,7 +38,7 @@ type Chart = {
   tags?: string[];
 };
 
-export default function Home() {
+function SearchPage() {
   const { t, i18n } = useTranslation();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -858,5 +858,13 @@ export default function Home() {
         </div>
       </footer>
     </main>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">Loading...</div>}>
+      <SearchPage />
+    </Suspense>
   );
 }
