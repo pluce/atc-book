@@ -16,9 +16,10 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const icao = searchParams.get('icao')?.toUpperCase();
 
-  if (!icao || icao.length !== 4) {
+  // SECURITY: Ensure ICAO is strictly 4 alphanumeric chars
+  if (!icao || !/^[A-Z0-9]{4}$/.test(icao)) {
     return NextResponse.json(
-      { error: 'Code ICAO invalide. Il doit faire 4 caractères.' },
+      { error: 'Code ICAO invalide. Il doit faire 4 caractères alphanumériques.' },
       { status: 400 }
     );
   }
