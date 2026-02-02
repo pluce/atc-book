@@ -1,39 +1,106 @@
+import { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Chart } from '../types';
+import { Chart, SavedDock } from '../types';
+import { Notice } from '../lib/notices/types';
 import { CATEGORY_MAP } from '../lib/constants';
 
 interface DockProps {
   charts: Chart[];
+  notices: Notice[];
   onRemoveChart: (chart: Chart) => void;
   onClear: () => void;
+  onRestore: (charts: Chart[]) => void;
+  savedDocks: SavedDock[];
+  onSaveDock: (name: string) => void;
+  onDeleteDock: (id: string) => void;
   isOpen: boolean;
   onToggleOpen: () => void;
   side: 'bottom' | 'left' | 'right';
   onCycleSide: () => void;
   viewingChart: Chart | null;
   onViewChart: (chart: Chart) => void;
+  currentIcao?: string;
+  currentTags?: string[];
 }
 
 export function Dock({ 
   charts, 
+  notices,
   onRemoveChart, 
-  onClear, 
+  onClear,
+  onRestore,
+  savedDocks,
+  onSaveDock,
+  onDeleteDock,
   isOpen, 
   onToggleOpen, 
   side, 
   onCycleSide,
   viewingChart,
-  onViewChart 
+  onViewChart,
+  currentIcao,
+  currentTags
 }: DockProps) {
   const { t } = useTranslation();
+  const [viewMode, setViewMode] = useState<'charts' | 'notices' | 'saves'>('charts');
+  const [activeMenu, setActiveMenu] = useState<string | null>(null);
+  
+  // Saving State
+  const [showSaveInput, setShowSaveInput] = useState(false);
+  const [saveName, setSaveName] = useState('');
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const handleSave = () => {
+    onSaveDock(saveName);
+    setShowSaveInput(false);
+    setSaveName('');
+  };
+
+  const deleteSave = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDeleteDock(id);
+  };
+  
+  const restoreSave = (dock: SavedDock) => {
+      onRestore(dock.charts);
+      setViewMode('charts');
+  };
+
+  const prepareSave = () => {
+      const defaultName = currentIcao 
+        ? `${currentIcao}${currentTags && currentTags.length > 0 ? '_' + currentTags.join('_') : ''}`
+        : `Save ${new Date().toLocaleTimeString()}`;
+      setSaveName(defaultName);
+      setShowSaveInput(true);
+  };
 
   const getCategoryLabel = (category: string) => {
     return CATEGORY_MAP[category] ? t(CATEGORY_MAP[category]) : category;
   };
 
-  const dockVisible = charts.length > 0;
+  const getNoticeLabel = (category: string | undefined) => {
+      if (!category) return t('notice_cat_A'); // Default to A (General) or similar if unknown
+      
+      // Try exact category (e.g., "FA")
+      const key = `notice_cat_${category}`;
+      // @ts-ignore
+      const exact = t(key);
+      if (exact !== key) return exact;
+
+      // Try parent category (e.g., "F")
+      const parentKey = `notice_cat_${category.charAt(0)}`;
+      // @ts-ignore
+      const parent = t(parentKey);
+      if (parent !== parentKey) return parent;
+
+      return category;
+  };
+
+  const dockVisible = charts.length > 0 || (notices && notices.length > 0) || savedDocks.length > 0;
   
-  // Grouping logic
+  // Grouping logic for charts
   const uniqueIcaos = Array.from(new Set(charts.map(c => c.icao || 'Unknown'))).filter(i => i !== 'Unknown');
   const hasMultipleAirports = uniqueIcaos.length > 1;
 
@@ -48,16 +115,29 @@ export function Dock({
     return groups;
   }, {} as Record<string, Record<string, Chart[]>>);
 
+  // Grouping logic for notices
+  const groupedNotices = (notices || []).reduce((groups, notice) => {
+      // Use category set by adapter (code23)
+     const cat = notice.category || 'OTHER';
+     if (!groups[cat]) groups[cat] = [];
+     groups[cat].push(notice);
+     return groups;
+  }, {} as Record<string, Notice[]>);
+  
+  const noticesHeightClass = side === 'bottom' ? 'h-96' : 'w-96';
+  const standardSizeClass = side === 'bottom' ? 'h-32' : 'w-32';
+  const isExpandedView = viewMode !== 'charts';
+
   return (
       <div 
         data-testid="dock-container"
         className={`fixed z-[60] transition-all duration-300 ease-in-out bg-popover/95 backdrop-blur-md border-border shadow-2xl
             ${!dockVisible ? 'translate-y-[200%] opacity-0' : 'translate-y-0 opacity-100'}
             ${side === 'bottom' 
-                ? 'bottom-0 left-0 right-0 h-32 border-t' 
+                ? `bottom-0 left-0 right-0 border-t ${isOpen && isExpandedView ? noticesHeightClass : standardSizeClass}`
                 : side === 'left'
-                    ? 'top-0 bottom-0 left-0 w-32 border-r'
-                    : 'top-0 bottom-0 right-0 w-32 border-l'
+                    ? `top-0 bottom-0 left-0 border-r ${isOpen && isExpandedView ? noticesHeightClass : standardSizeClass}`
+                    : `top-0 bottom-0 right-0 border-l ${isOpen && isExpandedView ? noticesHeightClass : standardSizeClass}`
             }
             ${!isOpen && side === 'bottom' ? 'translate-y-[calc(100%-2.5rem)]' : ''}
             ${!isOpen && side === 'left' ? '-translate-x-[calc(100%-2.5rem)]' : ''}
@@ -74,9 +154,9 @@ export function Dock({
                         : 'left-0 top-1/2 -translate-y-1/2 -translate-x-full'
                  }
              `}>
-                 <div className={`bg-popover border-border flex items-center shadow-xl overflow-hidden
+                 <div className={`bg-popover border-border flex items-center shadow-xl relative
                     ${side === 'bottom' 
-                        ? 'rounded-t-xl border-t border-x px-4 py-1 flex-row gap-3' 
+                        ? 'rounded-t-xl border-t border-x px-4 py-1 flex-row gap-3 overflow-hidden' 
                         : side === 'left'
                             ? 'rounded-r-xl border-y border-r py-3 px-1.5 flex-col gap-2'
                             : 'rounded-l-xl border-y border-l py-3 px-1.5 flex-col gap-2'
@@ -108,6 +188,28 @@ export function Dock({
                     {/* Divider */}
                     <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
 
+                    {/* Notices Toggle (if notices exist) */}
+                    {notices && notices.length > 0 && (
+                        <>
+                            <button
+                                onClick={() => {
+                                    if (!isOpen) onToggleOpen();
+                                    setViewMode(viewMode === 'notices' ? 'charts' : 'notices');
+                                }}
+                                className={`p-1.5 rounded-lg transition-colors flex items-center gap-1
+                                    ${viewMode === 'notices' ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
+                                `}
+                                title={t('dock_notices_title')}
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                                <span className="text-[10px] font-bold">{notices.length}</span>
+                            </button>
+                             <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
+                        </>
+                    )}
+
                     {/* Rotate Button */}
                     <button 
                         onClick={onCycleSide}
@@ -118,12 +220,218 @@ export function Dock({
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                          </svg>
                     </button>
+
+                    {/* Save / Load */}
+                    {(charts.length > 0 || savedDocks.length > 0) && (
+                        <>
+                            <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
+                            
+                            {charts.length > 0 && showSaveInput ? (
+                                <div className={`flex items-center gap-1 animate-in fade-in zoom-in duration-200 
+                                    ${side === 'bottom' ? '' : 'absolute top-0 left-full ml-3 bg-popover border border-border p-1.5 rounded-lg shadow-xl flex-row z-50 w-auto'}
+                                    ${side === 'right' ? '!right-full !left-auto !mr-3 !ml-0' : ''}
+                                `}>
+                                    <input 
+                                        autoFocus
+                                        data-testid="dock-save-input"
+                                        type="text" 
+                                        value={saveName} 
+                                        onChange={(e) => setSaveName(e.target.value)}
+                                        placeholder={t('dock_save_placeholder') || "Nom de la sauvegarde..."}
+                                        className="h-6 w-40 px-2 text-xs bg-background border border-border rounded focus:ring-1 focus:ring-primary outline-none"
+                                        onKeyDown={(e) => {
+                                            if(e.key === 'Enter') handleSave();
+                                            if(e.key === 'Escape') setShowSaveInput(false);
+                                        }}
+                                    />
+                                    <button onClick={handleSave} className="text-green-500 hover:text-green-600 hover:bg-green-500/10 p-1 rounded" data-testid="dock-save-confirm-btn">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </button>
+                                    <button onClick={() => setShowSaveInput(false)} className="text-destructive hover:text-red-600 hover:bg-destructive/10 p-1 rounded">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ) : (
+                                <>
+                                    {charts.length > 0 && (
+                                        <button 
+                                            onClick={prepareSave}
+                                            data-testid="dock-save-init-btn"
+                                            title={t('dock_save_tooltip') || "Sauvegarder la configuration"}
+                                            className="text-muted-foreground hover:text-primary p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+                                            </svg>
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => {
+                                            if(!isOpen) onToggleOpen();
+                                            setViewMode(viewMode === 'saves' ? 'charts' : 'saves');
+                                        }}
+                                        data-testid="dock-load-mode-btn"
+                                        title={t('dock_load_tooltip') || "Charger une configuration"}
+                                        className={`p-1.5 rounded-lg transition-colors
+                                            ${viewMode === 'saves' ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
+                                        `}
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </button>
+                                </>
+                            )}
+                        </>
+                    )}
                  </div>
              </div>
         )}
 
          {/* Content Container */}
-         {charts.length === 0 ? (
+         
+         {/* VIEW: NOTICES */}
+         {viewMode === 'notices' && isOpen ? (
+             <div className="h-full w-full overflow-hidden flex flex-col bg-popover relative">
+                 {/* Main Wrapper needs to handle menu positioning context */}
+                 
+                 <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 flex-shrink-0 z-20 relative">
+                     <h3 className="font-bold text-sm flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                        {t('dock_notices_title')} ({notices.length})
+                     </h3>
+                     <button onClick={() => setViewMode('charts')} className="text-xs text-primary hover:underline">
+                         {t('close_viewer')}
+                     </button>
+                 </div>
+
+                 <div ref={scrollRef} className="flex-1 overflow-y-auto pb-4 pt-0 space-y-6 relative z-10">
+                     {Object.entries(groupedNotices).length === 0 ? (
+                         <div className="text-center text-muted-foreground p-8">{t('dock_notices_empty')}</div>
+                     ) : (
+                         Object.entries(groupedNotices).map(([cat, catsNotices]) => (
+                             <div 
+                                key={cat} 
+                                ref={el => { if(el) sectionRefs.current[cat] = el }}
+                                className="space-y-2 scroll-mt-2 relative"
+                             >
+                                 <h4 
+                                     onClick={() => setActiveMenu(activeMenu === cat ? null : cat)}
+                                     title={t('dock_notices_jump_title') || 'Menu'}
+                                     className="text-xs font-bold uppercase tracking-wider text-muted-foreground border-b border-border text-center py-2 px-4 shadow-sm sticky top-0 bg-popover/95 z-20 backdrop-blur-sm cursor-pointer hover:text-primary hover:bg-secondary/50 transition-colors select-none flex items-center justify-center gap-1 group"
+                                     data-active={activeMenu === cat}
+                                 >
+                                     {getNoticeLabel(cat)}
+                                     <svg xmlns="http://www.w3.org/2000/svg" className={`h-3 w-3 opacity-50 group-hover:opacity-100 transition-all duration-200 ${activeMenu === cat ? 'rotate-180 text-primary opacity-100' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                     </svg>
+                                 </h4>
+
+                                 {activeMenu === cat && (
+                                     <>
+                                        <div className="fixed inset-0 z-30" onClick={() => setActiveMenu(null)}></div>
+                                        <div className="absolute top-[34px] left-1/2 -translate-x-1/2 w-56 max-h-60 z-40 bg-popover border border-border shadow-xl rounded-md flex flex-col animate-in fade-in zoom-in-95 duration-150 overflow-hidden ring-1 ring-border">
+                                            <div className="overflow-y-auto py-1 dark:bg-popover">
+                                                {Object.keys(groupedNotices).map(targetCat => (
+                                                    <button 
+                                                        key={targetCat}
+                                                        type="button"
+                                                        className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-secondary transition-colors
+                                                            ${cat === targetCat ? 'bg-secondary/60 font-semibold text-foreground' : 'text-muted-foreground'}
+                                                        `}
+                                                        onClick={() => {
+                                                            const el = sectionRefs.current[targetCat];
+                                                            if (el) {
+                                                                // Must verify if we need to adjust offset for sticky header
+                                                                const yOffset = -40; 
+                                                                const y = el.getBoundingClientRect().top + window.pageYOffset + yOffset;
+                                                                // Element scrollIntoView is safer for Dock
+                                                                el.scrollIntoView({ behavior: 'smooth' });
+                                                            }
+                                                            setActiveMenu(null);
+                                                        }}
+                                                    >
+                                                        <span className="truncate pr-2">{getNoticeLabel(targetCat)}</span>
+                                                        <span className="text-[10px] text-muted-foreground px-1.5 py-0.5 rounded-full bg-secondary">
+                                                            {groupedNotices[targetCat].length}
+                                                        </span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                     </>
+                                 )}
+                                 <div className={`px-4 grid gap-3 ${side === 'bottom' ? 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1'}`}>
+                                     {catsNotices.map((notice) => (
+                                         <div key={notice.id} className="bg-card border border-border rounded p-3 text-sm shadow-sm hover:shadow-md transition-shadow">
+                                             <div className="flex justify-between items-start mb-1">
+                                                 <span className="font-mono font-bold text-primary">{notice.identifier}</span>
+                                                 <span className={`text-[10px] px-1.5 py-0.5 rounded ${notice.type === 'N' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100' : notice.type === 'R' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100' : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100'}`}>
+                                                     {notice.type}
+                                                 </span>
+                                             </div>
+                                             <div className="text-xs text-muted-foreground mb-2">
+                                                 {new Date(notice.validFrom).toLocaleDateString()} - {notice.validTo === 'PERM' ? 'PERM' : new Date(notice.validTo).toLocaleDateString()}
+                                             </div>
+                                             <p className="whitespace-pre-line text-card-foreground text-xs leading-relaxed font-mono">
+                                                 {notice.content}
+                                             </p>
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
+                         ))
+                     )}
+                 </div>
+             </div>
+         ) : viewMode === 'saves' && isOpen ? (
+             <div className="h-full w-full overflow-hidden flex flex-col bg-popover relative">
+                 <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 flex-shrink-0 z-20 relative">
+                     <h3 className="font-bold text-sm flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19a2 2 0 01-2-2V7a2 2 0 012-2h4l2 2h4a2 2 0 012 2v1M5 19h14a2 2 0 002-2v-5a2 2 0 00-2-2H9a2 2 0 00-2 2v5a2 2 0 01-2 2z" />
+                        </svg>
+                        {t('dock_saves_title')} ({savedDocks.length})
+                     </h3>
+                     <button onClick={() => setViewMode('charts')} className="text-xs text-primary hover:underline">
+                         {t('close_viewer')}
+                     </button>
+                 </div>
+                 <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                     {savedDocks.length === 0 ? (
+                         <div className="text-center text-muted-foreground p-8 text-sm">{t('dock_saves_empty')}</div>
+                     ) : (
+                         savedDocks.map(dock => (
+                             <div key={dock.id} className="bg-card border border-border rounded-lg p-3 flex justify-between items-center hover:bg-secondary cursor-pointer group shadow-sm transition-all" onClick={() => restoreSave(dock)} data-testid="dock-saved-item">
+                                 <div className="flex flex-col gap-1">
+                                     <h4 className="font-bold text-sm group-hover:text-primary transition-colors">{dock.name}</h4>
+                                     <p className="text-[10px] text-muted-foreground font-mono">
+                                        {new Date(dock.timestamp).toLocaleDateString()} {new Date(dock.timestamp).toLocaleTimeString()} • {dock.charts.length} cartes
+                                     </p>
+                                 </div>
+                                 <button 
+                                    onClick={(e) => deleteSave(dock.id, e)} 
+                                    className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 p-2 rounded-full transition-colors opacity-0 group-hover:opacity-100"
+                                    title="Supprimer"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                 </button>
+                             </div>
+                         ))
+                     )}
+                 </div>
+             </div>
+         ) : (
+         /* VIEW: CHARTS (EXISTING) */
+         charts.length === 0 ? (
              <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -140,6 +448,7 @@ export function Dock({
                     </span>
                     <button 
                        onClick={onClear}
+                       data-testid="dock-clear-btn"
                        className="text-[10px] text-destructive hover:text-destructive/80 hover:underline whitespace-nowrap"
                     >
                         {t('clear_dock')}
@@ -204,6 +513,7 @@ export function Dock({
                     ))}
                 </div>
              </div>
+         )
          )}
       </div>
   );

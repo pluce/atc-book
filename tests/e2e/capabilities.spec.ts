@@ -144,4 +144,55 @@ test.describe('ATC BOOK E2E Capabilities', () => {
     await expect(page.getByText('Code ICAO')).toBeVisible();
   });
 
+  test('Capability 9: Dock Save/Load', async ({ page }) => {
+    // 1. Setup: Search and Pin a chart
+    await page.getByTestId('search-input').fill('LFPG');
+    await page.getByTestId('search-submit').click();
+    await page.getByTestId('chart-title').filter({ hasText: 'ILS RWY 08R' }).click();
+    await page.getByTestId('btn-pin').click();
+    
+    const dockContainer = page.getByTestId('dock-container');
+    await expect(dockContainer).toBeVisible();
+
+    // 2. Save the Dock
+    await page.getByTestId('dock-save-init-btn').click();
+    const saveInput = page.getByTestId('dock-save-input');
+    await expect(saveInput).toBeVisible();
+    
+    await saveInput.fill('My Test Save');
+    await page.getByTestId('dock-save-confirm-btn').click();
+
+    // 3. Clear the Dock
+    await page.getByTestId('dock-clear-btn').click();
+    // Alternatively check for empty state or disappearance of item
+    // But since auto-fold is active, dock might close.
+    // However, savedDocks > 0 so dock should be visible but folded possibly?
+    // Let's force open or check availability of Load button.
+    
+    // Check local storage or UI presence of save
+    // Open "Saves" view
+    const loadBtn = page.getByTestId('dock-load-mode-btn');
+    // If dock closed (auto-fold), we need to check if the handle is visible.
+    // With savedDocks > 0, the dock container should still be in DOM but potentially translated.
+    // However, the handle buttons (load) should be accessible or at least the handle itself.
+    
+    // In our implementation: `dockVisible = ... || savedDocks.length > 0`. 
+    // So dock container is maintained.
+    
+    // Ensure dock is open to see the list? 
+    // Clicking load button opens the dock AND sets view mode.
+    await loadBtn.click(); 
+
+    // 4. Verify Save is present
+    const savedItem = page.getByTestId('dock-saved-item').filter({ hasText: 'My Test Save' });
+    await expect(savedItem).toBeVisible();
+
+    // 5. Restore
+    await savedItem.click();
+
+    // 6. Verify Chart is back
+    const dockItem = page.getByTestId('dock-item').filter({ hasText: 'AD 2 LFPG' });
+    await expect(dockItem).toBeVisible();
+  });
+
 });

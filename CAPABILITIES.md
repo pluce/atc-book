@@ -27,6 +27,11 @@ Ce document liste les fonctionnalités clés de l'application ATC BOOK, servant 
 ## 5. Dock (Barre d'outils)
 - **Persistance** : Le contenu du Dock est sauvegardé (localStorage).
 - **Positionnement** : Le Dock peut être placé en bas, à gauche ou à droite.
+- **Sauvegarde / Chargement** : 
+  - Possibilité de sauvegarder la configuration actuelle du Dock sous un nom personnalisé.
+  - Gestionnaire de sauvegardes intégré (Liste, Restauration, Suppression).
+  - Accessible même si le Dock est vide (via les sauvegardes).
+- **Auto-fold** : Le Dock se replie automatiquement s'il est vide et sans action utilisateur, mais reste accessible pour le chargement.
 - **Gestion** :
   - Supprimer une carte spécifique.
   - Vider tout le Dock.

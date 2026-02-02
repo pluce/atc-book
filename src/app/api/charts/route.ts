@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   let targetSources: string[] = ['SIA']; // Default
 
   if (icao.startsWith('LF')) {
-    targetSources = ['SIA', 'ATLAS'];
+    targetSources = ['SIA', 'ATLAS', 'SUPAIP'];
   } else if (icao.startsWith('EG')) {
     targetSources = ['UK'];
   }

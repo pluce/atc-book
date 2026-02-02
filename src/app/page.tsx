@@ -8,7 +8,8 @@ import { PDFDocument } from 'pdf-lib';
 import { useTranslation } from 'react-i18next';
 import '../lib/i18n';
 import { fetchWithRetry, groupTags, getTagGroupKey } from '../lib/utils';
-import { Chart } from '../types';
+import { Chart, SavedDock } from '../types';
+import { Notice } from '../lib/notices/types';
 import { STATION_RULES, STATION_TAGS } from '../lib/constants';
 import { ChartViewer } from '../components/ChartViewer';
 import { Dock } from '../components/Dock';
@@ -33,6 +34,8 @@ function SearchPage() {
   const [merging, setMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [charts, setCharts] = useState<Chart[]>([]);
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const [noticesLoading, setNoticesLoading] = useState(false);
   const [searchedIcao, setSearchedIcao] = useState('');
   const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
   const [filterText, setFilterText] = useState('');
@@ -40,8 +43,9 @@ function SearchPage() {
 
   // FEATURE: Dock & Viewer State
   const [pinnedCharts, setPinnedCharts] = useState<Chart[]>([]);
+  const [savedDocks, setSavedDocks] = useState<SavedDock[]>([]);
   const [viewingChart, setViewingChart] = useState<Chart | null>(null);
-  const [dockOpen, setDockOpen] = useState(true);
+  const [dockOpen, setDockOpen] = useState(false);
   const [dockSide, setDockSide] = useState<'bottom' | 'left' | 'right'>('bottom');
   
   // CACHE: Blob URLs for instant display
@@ -54,12 +58,21 @@ function SearchPage() {
     try {
       const saved = localStorage.getItem('pinnedCharts');
       if (saved) {
-        setPinnedCharts(JSON.parse(saved));
+        const parsed = JSON.parse(saved);
+        setPinnedCharts(parsed);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setDockOpen(true);
+        }
       }
       
       const savedSide = localStorage.getItem('dockSide');
       if (savedSide && ['bottom', 'left', 'right'].includes(savedSide)) {
           setDockSide(savedSide as any);
+      }
+
+      const savedDocksStorage = localStorage.getItem('savedDocks');
+      if (savedDocksStorage) {
+        setSavedDocks(JSON.parse(savedDocksStorage));
       }
     } catch (e) {
       console.error("Failed to load pinned charts or dock settings", e);
@@ -104,6 +117,13 @@ function SearchPage() {
     }
   }, [pinnedCharts, dockSide, mounted]);
 
+  // Auto-close dock when last chart is removed
+  useEffect(() => {
+    if (pinnedCharts.length === 0) {
+      setDockOpen(false);
+    }
+  }, [pinnedCharts]);
+
   // Keyboard Shortcuts
   useEffect(() => {
       const handleKeyDown = (e: KeyboardEvent) => {
@@ -124,6 +144,8 @@ function SearchPage() {
     setLoading(true);
     setError(null);
     setCharts([]);
+    setNotices([]);
+    setNoticesLoading(true);
     setSearchedIcao('');
     setSelectedUrls(new Set());
     
@@ -141,16 +163,29 @@ function SearchPage() {
     // We just pass the ICAO and backend aggregates sources (SIA/ATLAS/UK/etc)
 
     try {
-      const res = await fetch(`/api/charts?icao=${code}`);
-      const data = await res.json();
+      const [resCharts, resNotices] = await Promise.all([
+        fetch(`/api/charts?icao=${code}`),
+        fetch(`/api/notices?icao=${code}`)
+      ]);
 
-      if (!res.ok) {
-        throw new Error(data.error || t('error_fetch'));
+      const dataCharts = await resCharts.json();
+      const dataNotices = await resNotices.json();
+
+      if (!resCharts.ok) {
+        throw new Error(dataCharts.error || t('error_fetch'));
       }
 
-      setCharts(data.charts.map((chart: Chart) => ({ ...chart, icao: code })));
+      setCharts(dataCharts.charts.map((chart: Chart) => ({ ...chart, icao: code })));
+      
+      if (resNotices.ok && dataNotices.notices) {
+        setNotices(dataNotices.notices);
+      } else {
+        console.error('Failed to fetch notices', dataNotices);
+      }
+      setNoticesLoading(false);
+
       // Select all by default, except those ending in _INSTR_XX.pdf
-      const initialSelection = data.charts
+      const initialSelection = dataCharts.charts
         .filter((c: Chart) => !/_INSTR_\d{2}\.pdf$/i.test(c.filename))
         .map((c: Chart) => c.url);
       
@@ -419,6 +454,27 @@ function SearchPage() {
     if (!dockOpen) setDockOpen(true);
   };
 
+  const handleSaveDock = (name: string) => {
+    if (!name.trim() || pinnedCharts.length === 0) return;
+    
+    const newSave: SavedDock = {
+      id: Date.now().toString(),
+      name: name.trim(),
+      charts: [...pinnedCharts],
+      timestamp: Date.now()
+    };
+    
+    const newDocks = [newSave, ...savedDocks];
+    setSavedDocks(newDocks);
+    localStorage.setItem('savedDocks', JSON.stringify(newDocks));
+  };
+
+  const handleDeleteDock = (id: string) => {
+    const newDocks = savedDocks.filter(d => d.id !== id);
+    setSavedDocks(newDocks);
+    localStorage.setItem('savedDocks', JSON.stringify(newDocks));
+  };
+
   // Group charts by category
   const groupedCharts = filteredCharts.reduce((groups, chart) => {
     if (!groups[chart.category]) {
@@ -434,11 +490,11 @@ function SearchPage() {
   if (!mounted) return null; // Avoid hydration mismatch
 
   // Layout calculations for Viewer and Main Content
-  const dockVisible = pinnedCharts.length > 0;
+  const dockVisible = pinnedCharts.length > 0 || savedDocks.length > 0;
 
   // Padding for main content so it doesn't get hidden by dock
   const mainContentStyle = {
-      paddingBottom: (dockVisible && dockOpen && dockSide === 'bottom') ? '8rem' : '2rem',
+      paddingBottom: (dockVisible && dockSide === 'bottom') ? (dockOpen ? '8rem' : '4rem') : '2rem',
       paddingLeft: (dockVisible && dockOpen && dockSide === 'left') ? '8rem' : '2rem', // Apply left padding if docked left
       paddingRight: (dockVisible && dockOpen && dockSide === 'right') ? '8rem' : '2rem', // Apply right padding if docked right (though content is centered usually)
   };
@@ -466,7 +522,7 @@ function SearchPage() {
 
       {/* Main Content Wrapper */}
       <div 
-        className="flex-1 transition-all duration-300"
+        className="flex-1 transition-all duration-300 flex flex-col"
         style={mainContentStyle}
       >
       <div className="absolute top-4 left-4 z-40 flex gap-2 items-center">
@@ -490,7 +546,7 @@ function SearchPage() {
            </button>
       </div>
 
-      <div className="max-w-6xl mx-auto space-y-8">
+      <div className="max-w-6xl mx-auto space-y-8 w-full flex-1">
         <header className="text-center space-y-4 pt-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             ATC BOOK
@@ -540,19 +596,6 @@ function SearchPage() {
           </section>
         )}
       </div>
-      </div>
-
-      <Dock 
-        charts={pinnedCharts}
-        onRemoveChart={(chart) => setPinnedCharts(prev => prev.filter(p => p.url !== chart.url))}
-        onClear={() => setPinnedCharts([])}
-        isOpen={dockOpen}
-        onToggleOpen={() => setDockOpen(!dockOpen)}
-        side={dockSide}
-        onCycleSide={cycleDockSide}
-        viewingChart={viewingChart}
-        onViewChart={openViewer}
-      />
 
       <footer className="mt-12 py-6 border-t border-border">
         <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-muted-foreground text-sm">
@@ -578,6 +621,30 @@ function SearchPage() {
           </div>
         </div>
       </footer>
+      </div>
+
+      <Dock 
+        charts={pinnedCharts}
+        notices={notices}
+        onRemoveChart={(chart) => setPinnedCharts(prev => prev.filter(p => p.url !== chart.url))}
+        onClear={() => setPinnedCharts([])}
+        onRestore={(charts) => {
+            setPinnedCharts(charts);
+            setDockOpen(true);
+        }}
+        savedDocks={savedDocks}
+        onSaveDock={handleSaveDock}
+        onDeleteDock={handleDeleteDock}
+        isOpen={dockOpen}
+        onToggleOpen={() => setDockOpen(!dockOpen)}
+        side={dockSide}
+        onCycleSide={cycleDockSide}
+        viewingChart={viewingChart}
+        onViewChart={openViewer}
+        currentIcao={searchedIcao}
+        currentTags={Array.from(selectedTags)}
+      />
+
     </main>
   );
 }

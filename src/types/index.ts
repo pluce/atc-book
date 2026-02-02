@@ -7,3 +7,10 @@ export type Chart = {
   tags?: string[];
   icao?: string;
 };
+
+export interface SavedDock {
+  id: string;
+  name: string;
+  charts: Chart[];
+  timestamp: number;
+}

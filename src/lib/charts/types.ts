@@ -8,6 +8,7 @@ export enum ChartCategory {
   VAC = 'VAC',
   VLC = 'VLC', // Landing visual
   TEM = 'TEM', // Temps/Mouvements
+  SUPAIP = 'SupAIP',
   OTHER = 'OTHER'
 }
 
