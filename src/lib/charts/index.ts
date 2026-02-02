@@ -1,9 +1,11 @@
 import { ChartProvider, Chart } from './types';
 import { SIAAdapter } from './adapters/sia';
 import { UKAdapter } from './adapters/uk';
+import { AtlasVACAdapter } from './adapters/atlas';
 
 const providers: Record<string, ChartProvider> = {
   'SIA': new SIAAdapter(),
+  'ATLAS': new AtlasVACAdapter(),
   'UK': new UKAdapter()
 };
 

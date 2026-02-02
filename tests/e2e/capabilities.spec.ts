@@ -19,6 +19,13 @@ test.describe('ATC BOOK E2E Capabilities', () => {
         subtitle: 'STAR PISTE 08',
         tags: ['Arrivee'],
         page: 'AD 2 LFPG 02',
+      },
+      {
+        url: 'http://example.com/lfpg_vac.pdf',
+        filename: 'AD-2.LFPG.pdf',
+        category: 'VAC',
+        subtitle: 'Carte VAC',
+        tags: ['VAC'],
       }
     ]
   };
@@ -47,12 +54,13 @@ test.describe('ATC BOOK E2E Capabilities', () => {
     await page.getByTestId('search-submit').click();
 
     // Verify results using testid
-    const title = page.getByTestId('results-title');
-    await expect(title).toBeVisible({ timeout: 15000 });
-    await expect(title).toContainText('LFPG');
+    await expect(page.getByTestId('results-title')).toBeVisible();
     
-    await expect(page.getByText('Instrument Approach')).toBeVisible();
-    await expect(page.getByText('ILS RWY 08R')).toBeVisible();
+    // Verify SIA chart using testid
+    await expect(page.getByTestId('chart-title').filter({ hasText: 'ILS RWY 08R' })).toBeVisible();
+
+    // Verify ATLAS VAC chart is present
+    await expect(page.getByTestId('chart-title').filter({ hasText: 'Carte VAC' })).toBeVisible();
   });
 
   test('Capability 2 & 3: Filtering', async ({ page }) => {

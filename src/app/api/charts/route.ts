@@ -4,8 +4,6 @@ import { getCharts, AVAILABLE_SOURCES } from '@/lib/charts';
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const icao = searchParams.get('icao')?.toUpperCase();
-  // Default to SIA for now as it's the only one implemented
-  const source = searchParams.get('source')?.toUpperCase() || 'SIA';
 
   // SECURITY: Ensure ICAO is strictly 4 alphanumeric chars
   if (!icao || !/^[A-Z0-9]{4}$/.test(icao)) {
@@ -15,18 +13,33 @@ export async function GET(request: Request) {
     );
   }
 
-  // Provider Check
-  if (!AVAILABLE_SOURCES.includes(source)) {
-      return NextResponse.json(
-        { error: `Source inconnue: ${source}. Sources valides: ${AVAILABLE_SOURCES.join(', ')}` },
-        { status: 400 }
-      );
+  // Determine sources based on ICAO prefix
+  let targetSources: string[] = ['SIA']; // Default
+
+  if (icao.startsWith('LF')) {
+    targetSources = ['SIA', 'ATLAS'];
+  } else if (icao.startsWith('EG')) {
+    targetSources = ['UK'];
   }
 
   try {
-    const charts = await getCharts(source, icao);
+    // Run all provider queries in parallel
+    const promises = targetSources.map(async (source) => {
+        try {
+            return await getCharts(source, icao);
+        } catch (err) {
+            console.error(`Error fetching from ${source} for ${icao}:`, err);
+            return []; // Fail gracefully for individual providers
+        }
+    });
 
-    if (charts.length === 0) {
+    const results = await Promise.all(promises);
+    const charts = results.flat();
+
+    // Deduplicate by URL (just in case)
+    const uniqueCharts = Array.from(new Map(charts.map(c => [c.url, c])).values());
+
+    if (uniqueCharts.length === 0) {
       // If result is empty, it might be 404
       // Adapter returns [] on 404 to avoid throwing control flow exceptions
       return NextResponse.json(
@@ -37,8 +50,8 @@ export async function GET(request: Request) {
     
     return NextResponse.json({ 
       icao, 
-      count: charts.length, 
-      charts 
+      count: uniqueCharts.length, 
+      charts: uniqueCharts
     });
 
   } catch (error: unknown) {

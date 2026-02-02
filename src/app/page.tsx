@@ -137,11 +137,11 @@ function SearchPage() {
     else setFilterText('');
 
     // Determine source based on ICAO prefix
-    const derivedSource = code.toUpperCase().startsWith('EG') ? 'UK' : 'SIA';
-    setSource(derivedSource);
+    // Previously logic was in frontend, now moved to backend.
+    // We just pass the ICAO and backend aggregates sources (SIA/ATLAS/UK/etc)
 
     try {
-      const res = await fetch(`/api/charts?icao=${code}&source=${derivedSource}`);
+      const res = await fetch(`/api/charts?icao=${code}`);
       const data = await res.json();
 
       if (!res.ok) {
