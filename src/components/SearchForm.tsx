@@ -12,19 +12,20 @@ export function SearchForm({ icao, setIcao, onSubmit, loading, error }: SearchFo
   const { t } = useTranslation();
 
   return (
-    <section className="bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700 max-w-2xl mx-auto">
+    <section className="bg-card p-6 rounded-2xl shadow-xl border border-border max-w-2xl mx-auto transition-colors duration-300">
       <form onSubmit={onSubmit} className="flex gap-4 items-end sm:items-stretch flex-col sm:flex-row">
         <div className="flex-1 space-y-2 w-full">
-          <label htmlFor="icao" className="block text-sm font-medium text-slate-300">
+          <label htmlFor="icao" className="block text-sm font-medium text-muted-foreground">
             {t('search_label')}
           </label>
           <div className="flex gap-2">
             <input
               type="text"
               id="icao"
+              data-testid="search-input"
               value={icao}
               onChange={(e) => setIcao(e.target.value.toUpperCase())}
-              className="flex-1 w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-3 text-lg focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all placeholder-slate-600"
+              className="flex-1 w-full bg-background border border-input rounded-lg px-4 py-3 text-lg focus:ring-2 focus:ring-ring focus:outline-none transition-all placeholder:text-muted-foreground text-foreground"
               placeholder={t('search_placeholder')}
               maxLength={4}
               required
@@ -33,8 +34,9 @@ export function SearchForm({ icao, setIcao, onSubmit, loading, error }: SearchFo
         </div>
         <button
           type="submit"
+          data-testid="search-submit"
           disabled={loading || icao.length < 4}
-          className="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-8 rounded-lg shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[150px] w-full sm:w-auto"
+          className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold py-3 px-8 rounded-lg shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[150px] w-full sm:w-auto"
         >
           {loading ? (
             <span className="animate-pulse">{t('searching')}</span>
@@ -44,12 +46,12 @@ export function SearchForm({ icao, setIcao, onSubmit, loading, error }: SearchFo
         </button>
       </form>
 
-      <p className="mt-4 text-xs text-slate-500 text-center">
+      <p className="mt-4 text-xs text-muted-foreground text-center">
         {t('supported_airports_hint')}
       </p>
 
       {error && (
-        <div className="mt-6 p-4 bg-red-900/50 border border-red-700 text-red-200 rounded-lg animate-fade-in text-center">
+        <div className="mt-6 p-4 bg-destructive/10 border border-destructive/30 text-destructive rounded-lg animate-fade-in text-center font-medium">
           ⚠️ {error}
         </div>
       )}

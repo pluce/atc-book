@@ -50,7 +50,8 @@ export function Dock({
 
   return (
       <div 
-        className={`fixed z-[60] transition-all duration-300 ease-in-out bg-slate-800/95 backdrop-blur-md border-slate-700 shadow-2xl
+        data-testid="dock-container"
+        className={`fixed z-[60] transition-all duration-300 ease-in-out bg-popover/95 backdrop-blur-md border-border shadow-2xl
             ${!dockVisible ? 'translate-y-[200%] opacity-0' : 'translate-y-0 opacity-100'}
             ${side === 'bottom' 
                 ? 'bottom-0 left-0 right-0 h-32 border-t' 
@@ -73,7 +74,7 @@ export function Dock({
                         : 'left-0 top-1/2 -translate-y-1/2 -translate-x-full'
                  }
              `}>
-                 <div className={`bg-slate-800 border-slate-700 flex items-center shadow-xl overflow-hidden
+                 <div className={`bg-popover border-border flex items-center shadow-xl overflow-hidden
                     ${side === 'bottom' 
                         ? 'rounded-t-xl border-t border-x px-4 py-1 flex-row gap-3' 
                         : side === 'left'
@@ -83,7 +84,7 @@ export function Dock({
                  `}>
                     <button 
                         onClick={onToggleOpen}
-                        className={`text-slate-300 hover:text-white flex items-center gap-2 text-xs font-semibold uppercase tracking-wider p-1 transition-colors
+                        className={`text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs font-semibold uppercase tracking-wider p-1 transition-colors
                             ${side !== 'bottom' ? 'flex-col-reverse' : 'flex-row'}
                         `}
                         title={isOpen ? "Réduire" : "Agrandir"}
@@ -105,12 +106,12 @@ export function Dock({
                     </button>
                     
                     {/* Divider */}
-                    <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-slate-600/50`}></div>
+                    <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
 
                     {/* Rotate Button */}
                     <button 
                         onClick={onCycleSide}
-                        className="text-slate-400 hover:text-blue-400 p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors"
+                        className="text-muted-foreground hover:text-primary p-1.5 rounded-lg hover:bg-secondary transition-colors"
                         title="Changer la position (Bas / Gauche / Droite)"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -123,7 +124,7 @@ export function Dock({
 
          {/* Content Container */}
          {charts.length === 0 ? (
-             <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2">
+             <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2">
                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
                  </svg>
@@ -132,14 +133,14 @@ export function Dock({
          ) : (
              <div className={`h-full flex ${side === 'bottom' ? 'items-center px-4 gap-4 overflow-x-auto' : 'flex-col py-4 gap-4 overflow-y-auto w-full items-center'}`}>
                 <div className={`flex-shrink-0 flex items-center justify-center gap-2
-                    ${side === 'bottom' ? 'border-r border-slate-700 pr-4 flex-col' : 'border-b border-slate-700 pb-4 w-full flex-col'}
+                    ${side === 'bottom' ? 'border-r border-border pr-4 flex-col' : 'border-b border-border pb-4 w-full flex-col'}
                 `}>
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap">
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap" data-testid="dock-header-title">
                         {side === 'bottom' ? t('dock_title') : 'DOCK'}
                     </span>
                     <button 
                        onClick={onClear}
-                       className="text-[10px] text-red-400 hover:text-red-300 hover:underline whitespace-nowrap"
+                       className="text-[10px] text-destructive hover:text-destructive/80 hover:underline whitespace-nowrap"
                     >
                         {t('clear_dock')}
                     </button>
@@ -150,14 +151,14 @@ export function Dock({
                         <div key={airportKey} className={`flex ${side === 'bottom' ? 'flex-row gap-4 h-full' : 'flex-col gap-2 w-full'}`}>
                             {/* Airport Header if multiple airports */}
                             {hasMultipleAirports && (
-                                <div className={`flex items-center justify-center ${side === 'bottom' ? 'bg-slate-800/50 rounded-lg px-2 border border-slate-700/50 flex-col py-1 h-full' : 'w-full border-b border-slate-700/50 pb-1 mb-1'}`}>
-                                    <span className="text-sm font-bold text-blue-400">{airportKey}</span>
+                                <div className={`flex items-center justify-center ${side === 'bottom' ? 'bg-secondary rounded-lg px-2 border border-border flex-col py-1 h-full' : 'w-full border-b border-border pb-1 mb-1'}`}>
+                                    <span className="text-sm font-bold text-primary">{airportKey}</span>
                                 </div>
                             )}
 
                             {Object.entries(categories).map(([category, charts]) => (
-                                <div key={`${airportKey}-${category}`} className={`flex flex-col gap-1 flex-shrink-0 ${side === 'bottom' ? 'h-full justify-center border-r border-slate-700/50 pr-4 last:border-0' : 'w-full border-b border-slate-700/50 pb-2 last:border-0'}`}>
-                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-1 truncate max-w-[12rem]">
+                                <div key={`${airportKey}-${category}`} className={`flex flex-col gap-1 flex-shrink-0 ${side === 'bottom' ? 'h-full justify-center border-r border-border pr-4 last:border-0' : 'w-full border-b border-border pb-2 last:border-0'}`}>
+                                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider px-1 truncate max-w-[12rem]">
                                         {getCategoryLabel(category)}
                                     </span>
                                     
@@ -165,14 +166,15 @@ export function Dock({
                                         {charts.map((chart, idx) => (
                                             <div 
                                                 key={`${chart.url}-${idx}`} 
-                                                className={`relative flex-shrink-0 bg-slate-700/50 hover:bg-slate-700 border border-slate-600 rounded-lg p-2 cursor-pointer group transition-all box-border
-                                                    ${viewingChart?.url === chart.url ? 'ring-2 ring-blue-500 bg-slate-700' : ''}
+                                                data-testid="dock-item"
+                                                className={`relative flex-shrink-0 bg-card hover:bg-secondary border border-border rounded-lg p-2 cursor-pointer group transition-all box-border
+                                                    ${viewingChart?.url === chart.url ? 'ring-2 ring-primary bg-secondary' : ''}
                                                     ${side === 'bottom' ? 'w-48' : 'w-full'}
                                                 `}
                                                 onClick={() => onViewChart(chart)}
                                             >
                                                 <div className="flex justify-between items-start gap-1">
-                                                    <h5 className="font-semibold text-xs text-slate-200 truncate leading-tight w-full" title={chart.subtitle || chart.category}>
+                                                    <h5 className="font-semibold text-xs text-card-foreground truncate leading-tight w-full" title={chart.subtitle || chart.category}>
                                                         {chart.category === 'Instrument Approach' ? (chart.filename.replace('.pdf','')) : (chart.subtitle || chart.category)}
                                                     </h5>
                                                     <button
@@ -180,7 +182,7 @@ export function Dock({
                                                           e.stopPropagation();
                                                           onRemoveChart(chart);
                                                         }}
-                                                        className="text-slate-400 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 absolute top-1 right-1 bg-slate-800 rounded-full p-0.5"
+                                                        className="text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100 absolute top-1 right-1 bg-secondary rounded-full p-0.5"
                                                         title={t('unpin_tooltip')}
                                                     >
                                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
@@ -189,7 +191,7 @@ export function Dock({
                                                     </button>
                                                 </div>
                                                 <div className="mt-1 flex items-center justify-between gap-1">
-                                                    <span className={`text-[9px] bg-blue-900/40 text-blue-300 border border-blue-900/50 px-1 py-0.5 rounded truncate ${side === 'bottom' ? 'max-w-[70%]' : 'max-w-full'}`}>
+                                                    <span className={`text-[9px] bg-primary/20 text-primary border border-primary/20 px-1 py-0.5 rounded truncate ${side === 'bottom' ? 'max-w-[70%]' : 'max-w-full'}`}>
                                                         {chart.page || 'PDF'}
                                                     </span>
                                                 </div>

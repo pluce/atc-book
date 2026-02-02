@@ -29,20 +29,20 @@ export function ChartViewer({ chart, onClose, blobUrl, style }: ChartViewerProps
 
   return (
     <div 
-        className="fixed z-[50] bg-black/90 backdrop-blur-sm flex flex-col animate-fade-in transition-all duration-300"
+        className="fixed z-[50] bg-background/95 backdrop-blur-sm flex flex-col animate-fade-in transition-all duration-300"
         style={style}
     >
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-700">
-        <h3 className="text-white font-semibold truncate flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-2 bg-card border-b border-border">
+        <h3 className="text-card-foreground font-semibold truncate flex items-center gap-2">
           {getCategoryLabel(chart.category)} - {chart.subtitle || chart.filename}
         </h3>
         <div className="flex items-center gap-2">
-            <span className="hidden md:inline text-xs text-slate-500 mr-2">
-                <kbd className="bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">ESC</kbd> {t('close_viewer')}
+            <span className="hidden md:inline text-xs text-muted-foreground mr-2">
+                <kbd className="bg-secondary px-1.5 py-0.5 rounded border border-border text-xs">ESC</kbd> {t('close_viewer')}
             </span>
             <button 
             onClick={onClose}
-            className="p-2 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"
+            className="p-2 hover:bg-secondary rounded-full text-muted-foreground hover:text-foreground transition-colors"
             title={t('close_viewer')}
             >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -51,7 +51,7 @@ export function ChartViewer({ chart, onClose, blobUrl, style }: ChartViewerProps
             </button>
         </div>
       </div>
-      <div className="flex-1 w-full bg-slate-800 relative">
+      <div className="flex-1 w-full bg-secondary relative">
          <iframe 
             src={src} 
             className="w-full h-full border-none"

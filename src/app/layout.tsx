@@ -1,3 +1,4 @@
+import { ThemeProvider } from "@/components/ThemeProvider";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
@@ -26,10 +27,14 @@ export default function RootLayout({
   const gaId = process.env.NEXT_PUBLIC_GOOGLE_ANALYTICS_ID;
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
+        <ThemeProvider
+            defaultTheme="system"
+            storageKey="atc-book-theme"
+        >
         {gaId && (
           <>
             <Script
@@ -48,6 +53,7 @@ export default function RootLayout({
           </>
         )}
         {children}
+        </ThemeProvider>
       </body>
     </html>
   );

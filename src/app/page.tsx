@@ -15,6 +15,7 @@ import { Dock } from '../components/Dock';
 import { SearchForm } from '../components/SearchForm';
 import { ChartFilters } from '../components/ChartFilters';
 import { ChartGrid } from '../components/ChartGrid';
+import { ThemeToggle } from '../components/ThemeToggle';
 
 function SearchPage() {
   const { t, i18n } = useTranslation();
@@ -452,7 +453,7 @@ function SearchPage() {
 
 
   return (
-    <main className="min-h-screen bg-slate-900 text-slate-100 font-sans relative flex flex-col transition-all duration-300"> 
+    <main className="min-h-screen bg-background text-foreground font-sans relative flex flex-col transition-all duration-300"> 
       {/* Viewer Modal - Now respects dock position */}
       {viewingChart && (
         <ChartViewer 
@@ -468,17 +469,21 @@ function SearchPage() {
         className="flex-1 transition-all duration-300"
         style={mainContentStyle}
       >
-      <div className="absolute top-4 left-4 z-40 flex gap-2">
+      <div className="absolute top-4 left-4 z-40 flex gap-2 items-center">
+           <ThemeToggle />
+           <div className="h-6 w-px bg-border mx-1"></div>
            <button 
              onClick={() => changeLanguage('fr')} 
-             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'fr' ? 'bg-blue-600 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+             data-testid="lang-fr"
+             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'fr' ? 'bg-primary border-primary' : 'bg-card border-border hover:bg-secondary'}`}
              title="Français"
            >
              🇫🇷
            </button>
            <button 
              onClick={() => changeLanguage('en')} 
-             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'en' ? 'bg-blue-600 border-blue-500' : 'bg-slate-800 border-slate-700 hover:bg-slate-700'}`}
+             data-testid="lang-en"
+             className={`text-xl px-2 py-1 rounded border transition-colors ${i18n.language === 'en' ? 'bg-primary border-primary' : 'bg-card border-border hover:bg-secondary'}`}
              title="English"
            >
              🇬🇧
@@ -486,11 +491,11 @@ function SearchPage() {
       </div>
 
       <div className="max-w-6xl mx-auto space-y-8">
-        <header className="text-center space-y-4">
+        <header className="text-center space-y-4 pt-8">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
             ATC BOOK
           </h1>
-          <p className="text-slate-400">
+          <p className="text-muted-foreground">
             {t('subtitle')}
           </p>
         </header>
@@ -549,15 +554,15 @@ function SearchPage() {
         onViewChart={openViewer}
       />
 
-      <footer className="mt-12 py-6 border-t border-slate-700/50">
-        <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-slate-400 text-sm">
+      <footer className="mt-12 py-6 border-t border-border">
+        <div className="container mx-auto px-4 flex flex-col md:flex-row items-center justify-between gap-4 text-muted-foreground text-sm">
           <div className="flex items-center gap-2">
             <span>{t('footer_credits')}</span>
             <a 
               href="https://youtube.com/channel/UCoeiQSBuqp3oFpK16nQT1_Q/" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="font-semibold text-blue-400 hover:text-blue-300 flex items-center gap-1 transition-colors"
+              className="font-semibold text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
             >
               Stardust Citizen
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" className="inline ml-1">
@@ -567,7 +572,7 @@ function SearchPage() {
           </div>
           
           <div className="flex gap-4 text-xs">
-             <div className="px-3 py-1 bg-slate-800 rounded-full border border-slate-700 font-mono text-blue-300">
+             <div className="px-3 py-1 bg-card rounded-full border border-border font-mono text-primary">
                 {process.env.NEXT_PUBLIC_AIRAC_CYCLE_NAME || 'Unknown'} / {process.env.NEXT_PUBLIC_AIRAC_DATE || 'Unknown'}
              </div>
           </div>
@@ -579,7 +584,7 @@ function SearchPage() {
 
 export default function Home() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground">Loading...</div>}>
       <SearchPage />
     </Suspense>
   );

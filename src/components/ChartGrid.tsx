@@ -36,7 +36,7 @@ export function ChartGrid({
 
   if (Object.keys(groupedCharts).length === 0) {
     return (
-      <div className="text-center py-12 text-slate-500 bg-slate-800/30 rounded-xl border-2 border-dashed border-slate-700">
+      <div className="text-center py-12 text-muted-foreground bg-secondary/30 rounded-xl border-2 border-dashed border-border">
         <p>{t('no_results')}</p>
       </div>
     );
@@ -46,15 +46,15 @@ export function ChartGrid({
     <div className="space-y-10">
       {Object.entries(groupedCharts).map(([category, groupCharts]) => (
         <div key={category} className="space-y-4">
-          <div className="flex items-center gap-3 border-b border-slate-700 pb-2">
+          <div className="flex items-center gap-3 border-b border-border pb-2">
             <input
               type="checkbox"
               checked={groupCharts.every(c => selectedUrls.has(c.url))}
               onChange={() => toggleGroup(groupCharts)}
-              className="w-5 h-5 rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-slate-800 cursor-pointer"
+              className="w-5 h-5 rounded border-input text-primary focus:ring-ring bg-background cursor-pointer"
             />
-            <h3 className="text-xl font-semibold text-blue-300">{getCategoryLabel(category)}</h3>
-            <span className="text-sm text-slate-500 bg-slate-800 px-2 py-0.5 rounded-full">
+            <h3 className="text-xl font-semibold text-primary">{getCategoryLabel(category)}</h3>
+            <span className="text-sm text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
               {groupCharts.length}
             </span>
           </div>
@@ -74,8 +74,8 @@ export function ChartGrid({
                   }}
                   className={`group border p-4 rounded-xl transition-all duration-200 flex flex-col justify-between h-full hover:shadow-lg cursor-pointer select-none relative
                     ${isSelected
-                      ? 'bg-slate-800 border-blue-500/50 shadow-blue-900/10'
-                      : 'bg-slate-800/50 border-slate-700/50 hover:bg-slate-800 hover:border-slate-600'}
+                      ? 'bg-secondary border-primary/50 shadow-primary/10'
+                      : 'bg-card border-border hover:bg-secondary/50 hover:border-border/80'} // Changed simplified hover
                   `}
                 >
                   <div className="flex items-start gap-3 mb-2">
@@ -83,11 +83,11 @@ export function ChartGrid({
                       type="checkbox"
                       checked={isSelected}
                       onChange={() => toggleChart(chart.url)}
-                      className="mt-1 w-4 h-4 rounded border-slate-600 text-blue-600 focus:ring-blue-500 bg-slate-900/50 cursor-pointer"
+                      className="mt-1 w-4 h-4 rounded border-input text-primary focus:ring-ring bg-background/50 cursor-pointer"
                     />
                     <div className="flex-1 min-w-0 pr-8">
                       <div className="flex justify-between items-start gap-2">
-                        <h4 className={`font-semibold leading-snug truncate ${isSelected ? 'text-white' : 'text-slate-300'} group-hover:text-blue-200`}>
+                        <h4 data-testid="chart-title" className={`font-semibold leading-snug truncate ${isSelected ? 'text-primary' : 'text-card-foreground'} group-hover:text-primary transition-colors`}>
                           {(!chart.subtitle || chart.subtitle.toLowerCase().trim() === chart.category.toLowerCase().trim())
                             ? getCategoryLabel(chart.category)
                             : chart.subtitle}
@@ -95,14 +95,14 @@ export function ChartGrid({
                       </div>
                       <div className="mt-1">
                         {chart.page && (
-                          <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded font-mono border border-slate-600 whitespace-nowrap mr-2">
+                          <span className="text-[10px] bg-secondary text-secondary-foreground px-1.5 py-0.5 rounded font-mono border border-border whitespace-nowrap mr-2">
                             {chart.page}
                           </span>
                         )}
                         {chart.tags && chart.tags.length > 0 && (
                           <span className="inline-flex flex-wrap gap-1">
                             {chart.tags.map(tag => (
-                              <span key={tag} className="text-[9px] uppercase tracking-wide font-semibold bg-slate-700/50 text-slate-400 px-1.5 py-0.5 rounded border border-slate-700/50">
+                              <span key={tag} className="text-[9px] uppercase tracking-wide font-semibold bg-muted text-muted-foreground px-1.5 py-0.5 rounded border border-border">
                                 {getTagLabel(tag)}
                               </span>
                             ))}
@@ -114,11 +114,12 @@ export function ChartGrid({
 
                   {/* Pin Button - Absolute positioned top right */}
                   <button
+                    data-testid="btn-pin-card"
                     onClick={(e) => togglePin(chart, e)}
                     className={`absolute top-3 right-3 p-1.5 rounded-full transition-all duration-200 
                       ${pinned
-                        ? 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
-                        : 'text-slate-600 hover:bg-slate-700 hover:text-slate-300'}
+                        ? 'bg-amber-500/20 text-amber-500 hover:bg-amber-500/30'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground'}
                     `}
                     title={pinned ? t('unpin_tooltip') : t('pin_tooltip')}
                   >
@@ -127,13 +128,13 @@ export function ChartGrid({
                     </svg>
                   </button>
 
-                  <div className="mt-2 pt-2 border-t border-slate-700/50 flex items-center justify-between gap-2">
+                  <div className="mt-2 pt-2 border-t border-border flex items-center justify-between gap-2">
                     <div className="flex-1 flex items-center gap-2 min-w-0">
                       <a
                         href={chart.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[10px] font-mono text-slate-500 truncate hover:text-blue-400 hover:underline"
+                        className="text-[10px] font-mono text-muted-foreground truncate hover:text-primary hover:underline transition-colors"
                         title={chart.filename}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -144,8 +145,7 @@ export function ChartGrid({
                       onClick={(e) => {
                         e.stopPropagation();
                         openViewer(chart);
-                      }}
-                      className="p-1 hover:bg-slate-700 rounded text-slate-400 hover:text-white transition-colors"
+                      }}                      data-testid="btn-viewer-open"                      className="p-1 hover:bg-muted rounded text-muted-foreground hover:text-foreground transition-colors"
                       title={t('merge_button')} // Using existing translation for "Open" context or generic view
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
