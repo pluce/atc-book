@@ -56,6 +56,15 @@ i18n
           tag_night: "Nuit",
           supported_airports_hint: "Aéroports IFR en France (SIA) et au Royaume-Uni (NATS) disponibles.",
 
+          // Dock
+          dock_title: "Porte-documents",
+          dock_empty: "Aucune carte épinglée",
+          pin_tooltip: "Épingler au porte-documents",
+          unpin_tooltip: "Retirer du porte-documents",
+          pin_selection_button: "Épingler",
+          clear_dock: "Tout retirer",
+          close_viewer: "Fermer",
+
           // Common words
           word_runway: "Piste"
         }
@@ -103,6 +112,15 @@ i18n
           tag_app_initial: "Initial App.",
           tag_night: "Night",
           supported_airports_hint: "IFR airports in France (SIA) and United-Kingdom (NATS) available.",
+
+          // Dock
+          dock_title: "Active Deck",
+          dock_empty: "No pinned charts",
+          pin_tooltip: "Pin to Active Deck",
+          unpin_tooltip: "Unpin from Active Deck",
+          pin_selection_button: "Pin Selection",
+          clear_dock: "Clear all",
+          close_viewer: "Close",
 
           // Common words
           word_runway: "Runway"
