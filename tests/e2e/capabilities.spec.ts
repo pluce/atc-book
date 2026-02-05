@@ -43,6 +43,22 @@ test.describe('ATC BOOK E2E Capabilities', () => {
     await page.goto('/');
   });
 
+  test(' Capability 0: Help Page', async ({ page }) => {
+    // Check if Help link exists and works using data-testid
+    const helpLink = page.getByTestId('footer-help-link');
+    await expect(helpLink).toBeVisible();
+    await helpLink.click();
+    await expect(page).toHaveURL(/.*\/help/);
+    
+    // Check title (translated or not, h1 should be there)
+    // We can be looser here or just check existence of content
+    await expect(page.locator('h1')).toBeVisible(); 
+    
+    // Go back using data-testid
+    await page.getByTestId('help-back-link').click();
+    await expect(page).toHaveURL(/\/$/); // Matches root path
+  });
+
   test('Capability 1: Search and Navigation', async ({ page }) => {
     // Verify title
     await expect(page).toHaveTitle(/ATC BOOK/);

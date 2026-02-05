@@ -14,7 +14,7 @@ i18n
     resources: {
       fr: {
         translation: {
-          subtitle: "Récupérez instantanément les cartes aéronautiques pour vos sessions VATSIM.",
+          subtitle: "Préparez vos sessions VATSIM avec de vraies cartes aéronautiques.",
           search_label: "Code ICAO (ex: LFPG)",
           search_placeholder: "LF...",
           search_button: "Rechercher",
@@ -54,7 +54,7 @@ i18n
           tag_app_final: "App. Finale",
           tag_app_initial: "App. Initiale",
           tag_night: "Nuit",
-          supported_airports_hint: "Aéroports IFR en France (SIA) et au Royaume-Uni (NATS) disponibles.",
+          supported_airports_hint: "Aéroports en France (SIA) et au Royaume-Uni (NATS) disponibles.",
 
           // Dock
           dock_title: "Porte-documents",
@@ -72,6 +72,25 @@ i18n
           dock_saves_title: "Sauvegardes",
           dock_saves_empty: "Aucune configuration sauvegardée",
           dock_save_placeholder: "Nom de la sauvegarde...",
+          dock_scratchpad_title: "Mémo",
+          dock_scratchpad_placeholder: "Écrivez vos notes ici (fréquences, clairances, mémos)...",
+          saved: "Enregistré",
+
+          // Contextual Help
+          help_title: "Aide & Guide",
+          help_page_title: "Comment utiliser ATC Book",
+          help_intro: "ATC Book est conçu pour simplifier la vie des contrôleurs virtuels sur VATSIM en regroupant les cartes et informations essentielles.",
+          help_getting_started: "Démarrage Rapide",
+          help_getting_started_text: "Entrez le code ICAO d'un aéroport (ex: LFPG, EGLL) pour afficher les cartes à jour. Utilisez les filtres rapides (Pistes, Départs, etc.) pour affiner l'affichage.",
+          help_dock: "Porte-documents (Dock)",
+          help_dock_text: "Épinglez vos cartes favorites (icône épingle) pour les garder actives. Le dock persiste à la réouverture du site. Vous pouvez le positionner en bas, à gauche ou à droite.",
+          help_scratchpad: "Mémo Intelligent",
+          help_scratchpad_text: "Un bloc-notes riche est intégré au dock. Notez-y les clairances ou fréquences. Il est sauvegardé automatiquement avec votre configuration.",
+          help_notam: "NOTAMs & SupAIP",
+          help_notam_text: "Consultez les NOTAMs triés par catégorie (Pistes, Radio, etc.) directement depuis le dock via l'icône de cloche.",
+          help_tips: "Astuces Pro",
+          help_tips_text: "Double-cliquez sur le titre d'une carte dans le dock pour la renommer. Créez des sauvegardes de dock pour vos différentes positions de contrôle (ex: 'LFPG_TWR', 'LFPG_APP').",
+          footer_help: "Aide",
 
           // NOTAM Categories
           notice_cat_A: "Généralités (Services)",
@@ -103,7 +122,7 @@ i18n
       },
       en: {
         translation: {
-          subtitle: "Instantly retrieve aeronautical charts for your VATSIM sessions.",
+          subtitle: "Prepare your VATSIM sessions with real aeronautical charts.",
           search_label: "ICAO Code (e.g. LFPG)",
           search_placeholder: "LF...",
           search_button: "Search",
@@ -143,7 +162,7 @@ i18n
           tag_app_final: "Final App.",
           tag_app_initial: "Initial App.",
           tag_night: "Night",
-          supported_airports_hint: "IFR airports in France (SIA) and United-Kingdom (NATS) available.",
+          supported_airports_hint: "Airports in France (SIA) and United-Kingdom (NATS) available.",
 
           // Dock
           dock_title: "Active Deck",
@@ -161,6 +180,25 @@ i18n
           dock_saves_title: "Saved Decks",
           dock_saves_empty: "No saved decks",
           dock_save_placeholder: "Save name...",
+          dock_scratchpad_title: "Scratchpad",
+          dock_scratchpad_placeholder: "Write your notes here (frequencies, clearances, memos)...",
+          saved: "Saved",
+
+          // Contextual Help
+          help_title: "Help & Guide",
+          help_page_title: "How to use ATC Book",
+          help_intro: "ATC Book is designed to make life easier for virtual controllers on VATSIM by gathering charts and essential info.",
+          help_getting_started: "Quick Start",
+          help_getting_started_text: "Enter an airport ICAO code (e.g. LFPG, EGLL) to view up-to-date charts. Use quick filters (Runways, Departures, etc.) to refine the list.",
+          help_dock: "Active Deck (Dock)",
+          help_dock_text: "Pin your favorite charts (pin icon) to keep them active. The deck persists between sessions. You can position it at the bottom, left, or right.",
+          help_scratchpad: "Smart Scratchpad",
+          help_scratchpad_text: "A rich text scratchpad is built into the dock. Use it for clearances or frequencies. It is auto-saved with your layout.",
+          help_notam: "NOTAMs & SupAIP",
+          help_notam_text: "View categorized NOTAMs (Runways, Radio, etc.) directly from the dock via the bell icon.",
+          help_tips: "Pro Tips",
+          help_tips_text: "Double-click a chart title in the deck to rename it. Create deck saves for your different controller positions (e.g., 'LFPG_TWR', 'LFPG_APP').",
+          footer_help: "Help",
 
           // NOTAM Categories
           notice_cat_A: "General (Services)",

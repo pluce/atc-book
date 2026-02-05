@@ -1,15 +1,21 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useTranslation } from 'react-i18next';
 import { Chart, SavedDock } from '../types';
 import { Notice } from '../lib/notices/types';
 import { CATEGORY_MAP } from '../lib/constants';
+
+const RichTextEditor = dynamic(() => import('./RichTextEditor'), { 
+  ssr: false,
+  loading: () => <div className="h-full w-full animate-pulse bg-secondary/50 rounded-lg" />
+});
 
 interface DockProps {
   charts: Chart[];
   notices: Notice[];
   onRemoveChart: (chart: Chart) => void;
   onClear: () => void;
-  onRestore: (charts: Chart[]) => void;
+  onRestore: (dock: SavedDock) => void;
   savedDocks: SavedDock[];
   onSaveDock: (name: string) => void;
   onDeleteDock: (id: string) => void;
@@ -21,6 +27,10 @@ interface DockProps {
   onViewChart: (chart: Chart) => void;
   currentIcao?: string;
   currentTags?: string[];
+  scratchpadContent: string;
+  onUpdateScratchpad: (content: string) => void;
+  activeDockId?: string | null;
+  onRenameChart: (chart: Chart, newName: string) => void;
 }
 
 export function Dock({ 
@@ -39,15 +49,67 @@ export function Dock({
   viewingChart,
   onViewChart,
   currentIcao,
-  currentTags
+  currentTags,
+  scratchpadContent,
+  onUpdateScratchpad,
+  activeDockId,
+  onRenameChart
 }: DockProps) {
   const { t } = useTranslation();
-  const [viewMode, setViewMode] = useState<'charts' | 'notices' | 'saves'>('charts');
+  const [viewMode, setViewMode] = useState<'charts' | 'notices' | 'saves' | 'scratchpad'>('charts');
   const [activeMenu, setActiveMenu] = useState<string | null>(null);
   
   // Saving State
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [saveName, setSaveName] = useState('');
+
+  // Renaming State
+  const [editingChartUrl, setEditingChartUrl] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editingChartUrl && editInputRef.current) {
+        editInputRef.current.focus();
+        editInputRef.current.select();
+    }
+  }, [editingChartUrl]);
+
+  const startEditing = (chart: Chart, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingChartUrl(chart.url);
+    setEditValue(chart.customTitle || (chart.category === 'Instrument Approach' ? (chart.filename.replace('.pdf','')) : (chart.subtitle || chart.category)));
+  };
+
+  const cancelEditing = () => {
+    setEditingChartUrl(null);
+    setEditValue('');
+  };
+
+  const saveEditing = (chart: Chart) => {
+    if (editValue.trim()) {
+        onRenameChart(chart, editValue.trim());
+    }
+    setEditingChartUrl(null);
+  };
+
+  // Scratchpad Local State for Debounce
+  const [localNote, setLocalNote] = useState(scratchpadContent);
+  const debounceTimerProp = useRef<NodeJS.Timeout | null>(null);
+
+  // Sync local note when prop changes (loading a save)
+  useEffect(() => {
+    setLocalNote(scratchpadContent);
+  }, [scratchpadContent]);
+
+  const handleNoteChange = (content: string) => {
+    setLocalNote(content);
+    
+    if (debounceTimerProp.current) clearTimeout(debounceTimerProp.current);
+    debounceTimerProp.current = setTimeout(() => {
+        onUpdateScratchpad(content);
+    }, 1000); // 1s debounce
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -64,14 +126,28 @@ export function Dock({
   };
   
   const restoreSave = (dock: SavedDock) => {
-      onRestore(dock.charts);
+      onRestore(dock);
       setViewMode('charts');
   };
 
   const prepareSave = () => {
-      const defaultName = currentIcao 
-        ? `${currentIcao}${currentTags && currentTags.length > 0 ? '_' + currentTags.join('_') : ''}`
-        : `Save ${new Date().toLocaleTimeString()}`;
+      let defaultName = '';
+      
+      // If we are working on an active dock, propose its name
+      if (activeDockId) {
+          const activeDock = savedDocks.find(d => d.id === activeDockId);
+          if (activeDock) {
+              defaultName = activeDock.name;
+          }
+      }
+
+      // Fallback if no active dock or active dock not found
+      if (!defaultName) {
+         defaultName = currentIcao 
+            ? `${currentIcao}${currentTags && currentTags.length > 0 ? '_' + currentTags.join('_') : ''}`
+            : `Save ${new Date().toLocaleTimeString()}`;
+      }
+
       setSaveName(defaultName);
       setShowSaveInput(true);
   };
@@ -125,7 +201,7 @@ export function Dock({
   }, {} as Record<string, Notice[]>);
   
   const noticesHeightClass = side === 'bottom' ? 'h-96' : 'w-96';
-  const standardSizeClass = side === 'bottom' ? 'h-32' : 'w-32';
+  const standardSizeClass = side === 'bottom' ? 'h-32' : 'w-48';
   const isExpandedView = viewMode !== 'charts';
 
   return (
@@ -144,9 +220,9 @@ export function Dock({
             ${!isOpen && side === 'right' ? 'translate-x-[calc(100%-2.5rem)]' : ''}
         `}
       >
-        {/* Toggle Handle & Controls */}
+        {/* Toggle Handle & Controls - Floating Pill Design when Bottom */}
         {dockVisible && (
-             <div className={`absolute flex items-center justify-center
+             <div className={`absolute flex items-center justify-center pointer-events-none z-50
                  ${side === 'bottom' 
                     ? 'top-0 left-1/2 -translate-x-1/2 -translate-y-full w-auto' 
                     : side === 'left'
@@ -154,24 +230,39 @@ export function Dock({
                         : 'left-0 top-1/2 -translate-y-1/2 -translate-x-full'
                  }
              `}>
-                 <div className={`bg-popover border-border flex items-center shadow-xl relative
+                 <div className={`bg-popover border-border flex items-center relative backdrop-blur-md pointer-events-auto rounded-full border shadow-2xl transition-all hover:scale-105 active:scale-95
                     ${side === 'bottom' 
-                        ? 'rounded-t-xl border-t border-x px-4 py-1 flex-row gap-3 overflow-hidden' 
+                        ? 'px-6 py-2 flex-row gap-4 mb-4' 
                         : side === 'left'
-                            ? 'rounded-r-xl border-y border-r py-3 px-1.5 flex-col gap-2'
-                            : 'rounded-l-xl border-y border-l py-3 px-1.5 flex-col gap-2'
+                            ? 'py-6 px-2 flex-col gap-4 ml-4'
+                            : 'py-6 px-2 flex-col gap-4 mr-4'
                     }
                  `}>
+                    <button
+                        onClick={() => {
+                            if (!isOpen) onToggleOpen();
+                            setViewMode(viewMode === 'scratchpad' ? 'charts' : 'scratchpad');
+                        }}
+                        className={`p-1.5 rounded-full transition-all duration-200
+                            ${viewMode === 'scratchpad' ? 'text-primary bg-primary/10 shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
+                        `}
+                        title={t('dock_scratchpad_title') || "Mémo"}
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                    </button>
+
                     <button 
                         onClick={onToggleOpen}
-                        className={`text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs font-semibold uppercase tracking-wider p-1 transition-colors
+                        className={`text-muted-foreground hover:text-foreground flex items-center gap-2 text-xs font-semibold uppercase tracking-wider p-1 transition-colors group
                             ${side !== 'bottom' ? 'flex-col-reverse' : 'flex-row'}
                         `}
                         title={isOpen ? "Réduire" : "Agrandir"}
                     >
-                        {side === 'bottom' && <span>{t('dock_title')} ({charts.length})</span>}
+                        {side === 'bottom' && <span className="text-sm font-medium tracking-normal group-hover:text-primary transition-colors">{t('dock_title')} ({charts.length})</span>}
                         
-                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 transform
+                        <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform duration-300 transform group-hover:text-primary
                             ${side === 'bottom' && isOpen ? 'rotate-180' : ''}
                             ${side === 'left' && isOpen ? 'rotate-180' : ''} 
                             ${side === 'right' && !isOpen ? 'rotate-180' : ''}
@@ -184,36 +275,32 @@ export function Dock({
 
                         {side !== 'bottom' && <span className="text-[10px] font-mono font-bold">{charts.length}</span>}
                     </button>
-                    
-                    {/* Divider */}
-                    <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
 
                     {/* Notices Toggle (if notices exist) */}
                     {notices && notices.length > 0 && (
-                        <>
-                            <button
-                                onClick={() => {
-                                    if (!isOpen) onToggleOpen();
-                                    setViewMode(viewMode === 'notices' ? 'charts' : 'notices');
-                                }}
-                                className={`p-1.5 rounded-lg transition-colors flex items-center gap-1
-                                    ${viewMode === 'notices' ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
-                                `}
-                                title={t('dock_notices_title')}
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <button
+                            onClick={() => {
+                                if (!isOpen) onToggleOpen();
+                                setViewMode(viewMode === 'notices' ? 'charts' : 'notices');
+                            }}
+                            className={`p-1.5 rounded-full transition-all duration-200 flex items-center justify-center
+                                ${viewMode === 'notices' ? 'text-primary bg-primary/10 shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
+                            `}
+                            title={t('dock_notices_title')}
+                        >
+                            <div className="relative">
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                 </svg>
-                                <span className="text-[10px] font-bold">{notices.length}</span>
-                            </button>
-                             <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
-                        </>
+                                <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-3.5 h-3.5 flex items-center justify-center text-[9px] font-bold shadow-sm ring-2 ring-popover">{notices.length}</span>
+                            </div>
+                        </button>
                     )}
 
                     {/* Rotate Button */}
                     <button 
                         onClick={onCycleSide}
-                        className="text-muted-foreground hover:text-primary p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                        className="text-muted-foreground hover:text-primary p-1.5 rounded-full hover:bg-secondary transition-colors"
                         title="Changer la position (Bas / Gauche / Droite)"
                     >
                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -224,11 +311,10 @@ export function Dock({
                     {/* Save / Load */}
                     {(charts.length > 0 || savedDocks.length > 0) && (
                         <>
-                            <div className={`${side === 'bottom' ? 'w-px h-4' : 'h-px w-4'} bg-border`}></div>
                             
                             {charts.length > 0 && showSaveInput ? (
                                 <div className={`flex items-center gap-1 animate-in fade-in zoom-in duration-200 
-                                    ${side === 'bottom' ? '' : 'absolute top-0 left-full ml-3 bg-popover border border-border p-1.5 rounded-lg shadow-xl flex-row z-50 w-auto'}
+                                    ${side === 'bottom' ? 'pointer-events-auto' : 'absolute top-0 left-full ml-3 bg-popover border border-border p-1.5 rounded-lg shadow-xl flex-row z-50 w-auto'}
                                     ${side === 'right' ? '!right-full !left-auto !mr-3 !ml-0' : ''}
                                 `}>
                                     <input 
@@ -238,20 +324,31 @@ export function Dock({
                                         value={saveName} 
                                         onChange={(e) => setSaveName(e.target.value)}
                                         placeholder={t('dock_save_placeholder') || "Nom de la sauvegarde..."}
-                                        className="h-6 w-40 px-2 text-xs bg-background border border-border rounded focus:ring-1 focus:ring-primary outline-none"
+                                        className="h-8 w-40 px-2 text-xs bg-background border border-border rounded focus:ring-1 focus:ring-primary outline-none"
                                         onKeyDown={(e) => {
                                             if(e.key === 'Enter') handleSave();
                                             if(e.key === 'Escape') setShowSaveInput(false);
                                         }}
                                     />
-                                    <button onClick={handleSave} className="text-green-500 hover:text-green-600 hover:bg-green-500/10 p-1 rounded" data-testid="dock-save-confirm-btn">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                    <button 
+                                        onClick={handleSave} 
+                                        className="text-green-600 hover:text-green-700 hover:bg-green-500/20 h-8 w-8 flex items-center justify-center rounded transition-colors" 
+                                        data-testid="dock-save-confirm-btn"
+                                        type="button"
+                                        title="Valider"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                         </svg>
                                     </button>
-                                    <button onClick={() => setShowSaveInput(false)} className="text-destructive hover:text-red-600 hover:bg-destructive/10 p-1 rounded">
-                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                    <button 
+                                        onClick={() => setShowSaveInput(false)} 
+                                        className="text-destructive hover:text-red-700 hover:bg-destructive/20 h-8 w-8 flex items-center justify-center rounded transition-colors"
+                                        title="Annuler"
+                                        type="button"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                                         </svg>
                                     </button>
                                 </div>
@@ -262,7 +359,7 @@ export function Dock({
                                             onClick={prepareSave}
                                             data-testid="dock-save-init-btn"
                                             title={t('dock_save_tooltip') || "Sauvegarder la configuration"}
-                                            className="text-muted-foreground hover:text-primary p-1.5 rounded-lg hover:bg-secondary transition-colors"
+                                            className="text-muted-foreground hover:text-primary p-1.5 rounded-full hover:bg-secondary transition-colors"
                                         >
                                             <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
@@ -276,8 +373,8 @@ export function Dock({
                                         }}
                                         data-testid="dock-load-mode-btn"
                                         title={t('dock_load_tooltip') || "Charger une configuration"}
-                                        className={`p-1.5 rounded-lg transition-colors
-                                            ${viewMode === 'saves' ? 'text-primary bg-primary/10' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
+                                        className={`p-1.5 rounded-full transition-all duration-200
+                                            ${viewMode === 'saves' ? 'text-primary bg-primary/10 shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary'}
                                         `}
                                     >
                                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -294,8 +391,35 @@ export function Dock({
 
          {/* Content Container */}
          
-         {/* VIEW: NOTICES */}
-         {viewMode === 'notices' && isOpen ? (
+         {/* VIEW: SCRATCHPAD */}
+         {viewMode === 'scratchpad' && isOpen ? (
+             <div className="h-full w-full overflow-hidden flex flex-col bg-popover relative">
+                 <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted/30 flex-shrink-0 z-20 relative">
+                     <h3 className="font-bold text-sm flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        {t('dock_scratchpad_title') || "Mémo / Scratchpad"}
+                     </h3>
+                     <div className="flex gap-2">
+                        <span className="text-xs text-muted-foreground italic self-center">
+                            {(localNote !== scratchpadContent) ? '...' : (t('saved') || 'Saved')}
+                        </span>
+                        <button onClick={() => setViewMode('charts')} className="text-xs text-primary hover:underline">
+                            {t('close_viewer')}
+                        </button>
+                     </div>
+                 </div>
+                 <div className="flex-1 p-0 flex flex-col overflow-hidden">
+                     <RichTextEditor 
+                        value={localNote}
+                        onChange={handleNoteChange}
+                        placeholder={t('dock_scratchpad_placeholder') || "Écrivez vos notes ici (fréquences, clairances, mémos)..."}
+                        className="bg-background text-foreground"
+                     />
+                 </div>
+             </div>
+         ) : viewMode === 'notices' && isOpen ? (
              <div className="h-full w-full overflow-hidden flex flex-col bg-popover relative">
                  {/* Main Wrapper needs to handle menu positioning context */}
                  
@@ -413,6 +537,7 @@ export function Dock({
                                      <h4 className="font-bold text-sm group-hover:text-primary transition-colors">{dock.name}</h4>
                                      <p className="text-[10px] text-muted-foreground font-mono">
                                         {new Date(dock.timestamp).toLocaleDateString()} {new Date(dock.timestamp).toLocaleTimeString()} • {dock.charts.length} cartes
+                                        {dock.notes && <span className="ml-2 font-bold opacity-50" title="Contient des notes">📝</span>}
                                      </p>
                                  </div>
                                  <button 
@@ -483,9 +608,37 @@ export function Dock({
                                                 onClick={() => onViewChart(chart)}
                                             >
                                                 <div className="flex justify-between items-start gap-1">
-                                                    <h5 className="font-semibold text-xs text-card-foreground truncate leading-tight w-full" title={chart.subtitle || chart.category}>
-                                                        {chart.category === 'Instrument Approach' ? (chart.filename.replace('.pdf','')) : (chart.subtitle || chart.category)}
-                                                    </h5>
+                                                    {editingChartUrl === chart.url ? (
+                                                        <input 
+                                                            ref={editInputRef}
+                                                            type="text"
+                                                            className="w-full text-xs bg-background border border-primary/50 rounded px-1 py-0.5 outline-none text-foreground z-20"
+                                                            value={editValue}
+                                                            onChange={(e) => setEditValue(e.target.value)}
+                                                            onKeyDown={(e) => {
+                                                                if(e.key === 'Enter') saveEditing(chart);
+                                                                if(e.key === 'Escape') cancelEditing();
+                                                            }}
+                                                            onBlur={() => saveEditing(chart)}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        />
+                                                    ) : (
+                                                        <h5 
+                                                            className="font-semibold text-xs text-card-foreground truncate leading-tight w-full group-hover/text:text-primary transition-colors select-none" 
+                                                            title={chart.customTitle || (chart.category === 'Instrument Approach' ? (chart.filename.replace('.pdf','')) : (chart.subtitle || chart.category))}
+                                                        >
+                                                            {chart.customTitle || (chart.category === 'Instrument Approach' ? (chart.filename.replace('.pdf','')) : (chart.subtitle || chart.category))}
+                                                        </h5>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => startEditing(chart, e)}
+                                                        className="text-muted-foreground hover:text-primary transition-colors opacity-0 group-hover:opacity-100 absolute top-1 right-7 bg-secondary rounded-full p-0.5"
+                                                        title="Renommer"
+                                                    >
+                                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
+                                                            <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                                                        </svg>
+                                                    </button>
                                                     <button
                                                         onClick={(e) => {
                                                           e.stopPropagation();

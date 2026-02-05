@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
+import Link from 'next/link';
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { PDFDocument } from 'pdf-lib';
@@ -44,9 +45,13 @@ function SearchPage() {
   // FEATURE: Dock & Viewer State
   const [pinnedCharts, setPinnedCharts] = useState<Chart[]>([]);
   const [savedDocks, setSavedDocks] = useState<SavedDock[]>([]);
+  const [activeDockId, setActiveDockId] = useState<string | null>(null);
   const [viewingChart, setViewingChart] = useState<Chart | null>(null);
   const [dockOpen, setDockOpen] = useState(false);
   const [dockSide, setDockSide] = useState<'bottom' | 'left' | 'right'>('bottom');
+  
+  // FEATURE: Scratchpad State
+  const [scratchpadContent, setScratchpadContent] = useState('');
   
   // CACHE: Blob URLs for instant display
   const [blobCache, setBlobCache] = useState<Record<string, string>>({});
@@ -70,9 +75,19 @@ function SearchPage() {
           setDockSide(savedSide as any);
       }
 
+      const savedNotes = localStorage.getItem('dockNotes');
+      if (savedNotes) {
+          setScratchpadContent(savedNotes);
+      }
+
       const savedDocksStorage = localStorage.getItem('savedDocks');
       if (savedDocksStorage) {
         setSavedDocks(JSON.parse(savedDocksStorage));
+      }
+
+      const savedActiveDockId = localStorage.getItem('activeDockId');
+      if (savedActiveDockId) {
+          setActiveDockId(savedActiveDockId);
       }
     } catch (e) {
       console.error("Failed to load pinned charts or dock settings", e);
@@ -114,13 +129,37 @@ function SearchPage() {
     if (mounted) {
       localStorage.setItem('pinnedCharts', JSON.stringify(pinnedCharts));
       localStorage.setItem('dockSide', dockSide);
+      localStorage.setItem('dockNotes', scratchpadContent);
+      if (activeDockId) localStorage.setItem('activeDockId', activeDockId);
+      else localStorage.removeItem('activeDockId');
     }
-  }, [pinnedCharts, dockSide, mounted]);
+  }, [pinnedCharts, dockSide, scratchpadContent, activeDockId, mounted]);
+
+  // AUTO-SAVE Scratchpad to Active Dock
+  useEffect(() => {
+      if (mounted && activeDockId) {
+          setSavedDocks(prevDocks => {
+              const dockIndex = prevDocks.findIndex(d => d.id === activeDockId);
+              if (dockIndex === -1) return prevDocks; // Active dock deleted?
+
+              const updatedDock = { ...prevDocks[dockIndex], notes: scratchpadContent };
+              // Only update if notes actually changed to avoid unnecessary renders/loops (though React state updates handle shallow equality)
+              if (prevDocks[dockIndex].notes === scratchpadContent) return prevDocks;
+
+              const newDocks = [...prevDocks];
+              newDocks[dockIndex] = updatedDock;
+              localStorage.setItem('savedDocks', JSON.stringify(newDocks));
+              return newDocks;
+          });
+      }
+  }, [scratchpadContent, activeDockId, mounted]);
 
   // Auto-close dock when last chart is removed
   useEffect(() => {
     if (pinnedCharts.length === 0) {
       setDockOpen(false);
+      // Optional: Should we clear active dock if we clear all charts?
+      // User might want to keep notes context. Let's keep it for now.
     }
   }, [pinnedCharts]);
 
@@ -454,25 +493,58 @@ function SearchPage() {
     if (!dockOpen) setDockOpen(true);
   };
 
+  const handleRenameChart = (chart: Chart, newName: string) => {
+    // Update local state (pinned charts)
+    setPinnedCharts(prev => prev.map(p => 
+      p.url === chart.url ? { ...p, customTitle: newName } : p
+    ));
+  };
+
   const handleSaveDock = (name: string) => {
     if (!name.trim() || pinnedCharts.length === 0) return;
     
-    const newSave: SavedDock = {
-      id: Date.now().toString(),
-      name: name.trim(),
-      charts: [...pinnedCharts],
-      timestamp: Date.now()
-    };
+    // Check if we are overwriting the active dock (by name or ID)
+    // Constraint: We update the Active Dock if names match, OR create new.
+    // If activeDockId is set, and user kept the name, we update.
     
-    const newDocks = [newSave, ...savedDocks];
+    let targetId = Date.now().toString();
+    
+    // Find if a dock with this name already exists
+    const existingIndex = savedDocks.findIndex(d => d.name === name.trim());
+    
+    let newDocks = [...savedDocks];
+    
+    if (existingIndex !== -1) {
+        // Overwrite existing
+        targetId = savedDocks[existingIndex].id;
+        newDocks[existingIndex] = {
+            ...newDocks[existingIndex],
+            charts: [...pinnedCharts],
+            notes: scratchpadContent, // Enforce current notes on save
+            timestamp: Date.now()
+        };
+    } else {
+        // Create new
+        const newSave: SavedDock = {
+          id: targetId,
+          name: name.trim(),
+          charts: [...pinnedCharts],
+          notes: scratchpadContent,
+          timestamp: Date.now()
+        };
+        newDocks = [newSave, ...savedDocks];
+    }
+    
     setSavedDocks(newDocks);
     localStorage.setItem('savedDocks', JSON.stringify(newDocks));
+    setActiveDockId(targetId);
   };
 
   const handleDeleteDock = (id: string) => {
     const newDocks = savedDocks.filter(d => d.id !== id);
     setSavedDocks(newDocks);
     localStorage.setItem('savedDocks', JSON.stringify(newDocks));
+    if (activeDockId === id) setActiveDockId(null);
   };
 
   // Group charts by category
@@ -547,22 +619,26 @@ function SearchPage() {
       </div>
 
       <div className="max-w-6xl mx-auto space-y-8 w-full flex-1">
-        <header className="text-center space-y-4 pt-8">
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-indigo-400 bg-clip-text text-transparent">
-            ATC BOOK
-          </h1>
-          <p className="text-muted-foreground">
-            {t('subtitle')}
-          </p>
-        </header>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-8 pt-8">
+          <header className="text-center lg:text-left space-y-4 lg:w-1/3">
+            <h1 className="text-6xl font-black font-mono tracking-tighter bg-gradient-to-r from-blue-800 to-indigo-900 dark:from-blue-400 dark:to-indigo-500 bg-clip-text text-transparent drop-shadow-sm">
+              ATC BOOK
+            </h1>
+            <p className="text-muted-foreground font-medium text-lg">
+              {t('subtitle')}
+            </p>
+          </header>
 
-        <SearchForm 
-          icao={icao}
-          setIcao={setIcao}
-          onSubmit={handleSubmit}
-          loading={loading}
-          error={error}
-        />
+          <div className="w-full lg:w-2/3 lg:max-w-2xl">
+            <SearchForm 
+              icao={icao}
+              setIcao={setIcao}
+              onSubmit={handleSubmit}
+              loading={loading}
+              error={error}
+            />
+          </div>
+        </div>
 
         {searchedIcao && !loading && !error && (
           <section className="space-y-8 animate-fade-in">
@@ -612,6 +688,13 @@ function SearchPage() {
                 <path d="M8.051 1.999h.089c.822.003 4.987.033 6.11.335a2.01 2.01 0 0 1 1.415 1.42c.101.38.172.883.22 1.402l.01.104.022.26.008.104c.065.914.073 1.77.074 1.957v.075c-.001.194-.01 1.108-.082 2.06l-.008.105-.009.104c-.05.572-.124 1.14-.235 1.558a2.007 2.007 0 0 1-1.415 1.42c-1.16.312-5.569.334-6.18.335h-.142c-.309 0-1.587-.006-2.927-.052l-.17-.006-.087-.004-.171-.007-.171-.007c-1.11-.049-2.167-.128-2.654-.26a2.007 2.007 0 0 1-1.415-1.419c-.111-.417-.185-.986-.235-1.558L.09 9.82l-.008-.104A31.4 31.4 0 0 1 0 7.68v-.123c.002-.215.01-.958.064-1.778l.007-.103.003-.052.008-.104.022-.26.01-.104c.048-.519.119-1.023.22-1.402a2.007 2.007 0 0 1 1.415-1.42c.487-.13 1.544-.21 2.654-.26l.17-.007.172-.006.086-.003.171-.007A99.788 99.788 0 0 1 7.858 2h.193zM6.4 5.209v4.818l4.157-2.408L6.4 5.209z"/>
               </svg>
             </a>
+            <span className="text-border mx-2">|</span>
+            <Link href="/help" data-testid="footer-help-link" className="hover:text-primary hover:underline transition-colors flex items-center gap-1">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {t('footer_help')}
+            </Link>
           </div>
           
           <div className="flex gap-4 text-xs">
@@ -627,9 +710,16 @@ function SearchPage() {
         charts={pinnedCharts}
         notices={notices}
         onRemoveChart={(chart) => setPinnedCharts(prev => prev.filter(p => p.url !== chart.url))}
-        onClear={() => setPinnedCharts([])}
-        onRestore={(charts) => {
-            setPinnedCharts(charts);
+        onClear={() => {
+             setPinnedCharts([]);
+             setActiveDockId(null);
+             setScratchpadContent('');
+        }}
+        onRestore={(dock) => {
+            setPinnedCharts(dock.charts);
+            // Important: Set content, defaulting to empty string if undefined to clear previous context
+            setScratchpadContent(dock.notes || '');
+            setActiveDockId(dock.id);
             setDockOpen(true);
         }}
         savedDocks={savedDocks}
@@ -643,6 +733,10 @@ function SearchPage() {
         onViewChart={openViewer}
         currentIcao={searchedIcao}
         currentTags={Array.from(selectedTags)}
+        scratchpadContent={scratchpadContent}
+        onUpdateScratchpad={setScratchpadContent}
+        onRenameChart={handleRenameChart}
+        activeDockId={activeDockId}
       />
 
     </main>

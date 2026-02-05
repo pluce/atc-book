@@ -97,3 +97,80 @@ body {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Quill Customization */
+.quill {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.ql-toolbar {
+  border-color: var(--border-color) !important;
+  background-color: var(--bg-card);
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  flex-shrink: 0;
+}
+
+.ql-container {
+  flex: 1;
+  border: none !important; /* Remove borders, keep toolbar divider */
+  background-color: transparent !important;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.ql-editor {
+  flex: 1;
+  overflow-y: auto;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  padding: 1rem !important;
+}
+
+.ql-editor.ql-blank::before {
+  color: var(--text-muted) !important;
+  font-style: italic;
+  left: 1rem !important;
+  right: 1rem !important;
+}
+
+/* Dark Mode Quill Icons */
+.dark .ql-stroke {
+  stroke: var(--text-muted) !important;
+}
+.dark .ql-fill {
+  fill: var(--text-muted) !important;
+}
+
+.dark .ql-picker {
+  color: var(--text-muted) !important;
+}
+
+.dark .ql-toolbar button:hover .ql-stroke,
+.dark .ql-toolbar button.ql-active .ql-stroke,
+.dark .ql-picker-label:hover .ql-stroke,
+.dark .ql-picker-label.ql-active .ql-stroke,
+.dark .ql-picker-item:hover .ql-stroke, 
+.dark .ql-picker-item.ql-selected .ql-stroke {
+    stroke: var(--primary) !important;
+}
+
+.dark .ql-toolbar button:hover .ql-fill,
+.dark .ql-toolbar button.ql-active .ql-fill,
+.dark .ql-picker-label:hover .ql-fill,
+.dark .ql-picker-label.ql-active .ql-fill,
+.dark .ql-picker-item:hover .ql-fill, 
+.dark .ql-picker-item.ql-selected .ql-fill {
+    fill: var(--primary) !important;
+}
+
+.dark .ql-picker-options {
+    background-color: var(--bg-card);
+    border-color: var(--border-color) !important;
+}
