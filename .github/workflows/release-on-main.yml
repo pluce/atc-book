@@ -97,19 +97,92 @@ jobs:
         shell: bash
         run: dx build --release --package atc-book
 
+      - name: Sign macOS app (optional notarization)
+        if: matrix.os_id == 'macos-arm64'
+        shell: bash
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find target/dx/atc-book/release -maxdepth 4 -name "*.app" | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found under target/dx/atc-book/release" >&2
+            exit 1
+          fi
+
+          # Paid path: Developer ID signature + notarization
+          if [ -n "${MACOS_CERT_P12}" ] && [ -n "${MACOS_SIGNING_IDENTITY}" ] && [ -n "${APPLE_ID}" ] && [ -n "${APPLE_TEAM_ID}" ] && [ -n "${APPLE_APP_PASSWORD}" ]; then
+            KEYCHAIN_PASSWORD="temp-keychain-pass"
+            echo "$MACOS_CERT_P12" | base64 --decode > cert.p12
+            security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
+            security import cert.p12 -k build.keychain -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" build.keychain
+
+            codesign --force --deep --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP_PATH"
+            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+            xcrun notarytool submit "$APP_PATH" \
+              --apple-id "$APPLE_ID" \
+              --team-id "$APPLE_TEAM_ID" \
+              --password "$APPLE_APP_PASSWORD" \
+              --wait
+            xcrun stapler staple "$APP_PATH"
+            echo "Notarized build produced"
+            echo "SIGNING_MODE=notarized" >> "$GITHUB_ENV"
+          else
+            # Free path: ad-hoc signature only (still untrusted by Gatekeeper when downloaded).
+            codesign --force --deep --sign - "$APP_PATH"
+            codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+            echo "Ad-hoc signed build produced (no notarization)"
+            echo "SIGNING_MODE=ad-hoc" >> "$GITHUB_ENV"
+          fi
+
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+
       - name: Package macOS artifact
         if: matrix.os_id == 'macos-arm64'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p dist
-          APP_PATH="$(find target/dx/atc-book/release -maxdepth 4 -name "*.app" | head -n 1)"
+          APP_PATH="${APP_PATH:-}"
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH="$(find target/dx/atc-book/release -maxdepth 4 -name "*.app" | head -n 1)"
+          fi
           if [ -z "$APP_PATH" ]; then
             echo "No .app bundle found under target/dx/atc-book/release" >&2
             exit 1
           fi
           cp -R "$APP_PATH" dist/AtcBook.app
-          tar -czf "${{ matrix.archive_name }}" -C dist AtcBook.app
+          if [ "${SIGNING_MODE:-ad-hoc}" = "notarized" ]; then
+            cat > dist/README-macos.txt << 'EOF'
+This macOS app is signed and notarized.
+
+If macOS still warns on first launch:
+1. Right-click AtcBook.app and choose Open
+2. Confirm Open
+EOF
+          else
+            cat > dist/README-macos.txt << 'EOF'
+This macOS app is ad-hoc signed (not notarized).
+macOS Gatekeeper may block it when downloaded from the internet.
+
+To run it locally after extraction:
+
+  xattr -dr com.apple.quarantine AtcBook.app
+
+Alternative:
+1. Right-click AtcBook.app and choose Open
+2. Confirm Open
+EOF
+          fi
+          tar -czf "${{ matrix.archive_name }}" -C dist AtcBook.app README-macos.txt
 
       - name: Package Windows artifact
         if: matrix.os_id == 'windows-x64'
