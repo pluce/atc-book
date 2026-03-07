@@ -1,0 +1,30 @@
+[package]
+name = "atc-book"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+
+[dependencies]
+dioxus = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+scraper = { workspace = true }
+chrono = { workspace = true }
+regex = { workspace = true }
+uuid = { workspace = true }
+pdfium-render = { workspace = true }
+pdfium-auto = { workspace = true }
+image = { workspace = true }
+base64 = { workspace = true }
+async-channel = { workspace = true }
+futures-timer = { workspace = true }
+rusqlite = { workspace = true }
+dirs = { workspace = true }
+dark-light = { workspace = true }
+
+[features]
+default = ["desktop"]
+web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]

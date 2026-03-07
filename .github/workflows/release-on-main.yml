@@ -1,0 +1,138 @@
+name: Release On Main
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  bump_version:
+    name: Bump Version And Tag
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version in workspace Cargo.toml
+        id: bump
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CURRENT_VERSION="$(grep -m1 '^version = "' Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+          NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          NEW_TAG="v${NEW_VERSION}"
+
+          sed -i.bak -E "0,/^version = \".*\"/s//version = \"${NEW_VERSION}\"/" Cargo.toml
+          rm -f Cargo.toml.bak
+
+          echo "version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump + tag
+        shell: bash
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to ${TAG} [skip ci]"
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin HEAD:main --follow-tags
+
+  build:
+    name: Build ${{ matrix.name }}
+    needs: bump_version
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS arm64
+            runner: macos-14
+            os_id: macos-arm64
+            archive_name: atc-book-${{ needs.bump_version.outputs.tag }}-macos-arm64.tar.gz
+            binary_path: target/release/atc-book
+          - name: Windows x64
+            runner: windows-2022
+            os_id: windows-x64
+            archive_name: atc-book-${{ needs.bump_version.outputs.tag }}-windows-x64.zip
+            binary_path: target/release/atc-book.exe
+
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump_version.outputs.tag }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        shell: bash
+        run: cargo build --release -p atc-book
+
+      - name: Package macOS artifact
+        if: matrix.os_id == 'macos-arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "${{ matrix.binary_path }}" dist/atc-book
+          tar -czf "${{ matrix.archive_name }}" -C dist atc-book
+
+      - name: Package Windows artifact
+        if: matrix.os_id == 'windows-x64'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item "${{ matrix.binary_path }}" "dist/atc-book.exe"
+          Compress-Archive -Path "dist/atc-book.exe" -DestinationPath "${{ matrix.archive_name }}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os_id }}
+          path: ${{ matrix.archive_name }}
+
+  release:
+    name: Publish GitHub Release
+    needs:
+      - bump_version
+      - build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.bump_version.outputs.tag }}
+          name: ${{ needs.bump_version.outputs.tag }}
+          generate_release_notes: true
+          files: |
+            artifacts/release-macos-arm64/*
+            artifacts/release-windows-x64/*

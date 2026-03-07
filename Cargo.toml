@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Pierre Luce <pluce19@gmail.com>"]
+edition = "2021"
+
+[workspace.dependencies]
+dioxus = { version = "0.7.1" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["cookies", "json"] }
+scraper = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+regex = "1"
+uuid = { version = "1", features = ["v4"] }
+pdfium-render = "0.8"
+pdfium-auto = { version = "0.3", features = ["bundled"] }
+image = "0.25"
+base64 = "0.22"
+async-channel = "2"
+futures-timer = "3"
+rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = "5"
+dark-light = "1"

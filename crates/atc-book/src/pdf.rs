@@ -1,0 +1,258 @@
+use base64::Engine;
+use image::ImageEncoder;
+use pdfium_render::prelude::*;
+
+/// Render width in pixels (2x base for crisp zoom at 200%)
+const RENDER_WIDTH: i32 = 2400;
+/// Maximum render height in pixels
+const RENDER_MAX_HEIGHT: i32 = 3400;
+/// Max number of rendered PNG pages to keep on disk
+const MAX_RENDERED_PAGES: usize = 200;
+
+/// A rendered PDF page as a base64 PNG data URL
+#[derive(Debug, Clone, PartialEq)]
+pub struct RenderedPage {
+    /// `data:image/png;base64,...`
+    pub data_url: String,
+    /// 0-based page index
+    pub index: usize,
+}
+
+/// Download a PDF from a URL and render all pages as PNG data URLs.
+/// Uses the local file cache to avoid re-downloading.
+pub async fn fetch_and_render(url: &str) -> Result<Vec<RenderedPage>, String> {
+    // Try rendered PNG cache first
+    if let Some(pages) = load_rendered_cache(url)? {
+        return Ok(pages);
+    }
+
+    let bytes = fetch_pdf_bytes(url).await?;
+
+    let (tx, rx) = async_channel::bounded::<Result<Vec<RenderedPage>, String>>(1);
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send_blocking(render_pdf_bytes_with_cache(&url, &bytes));
+    });
+    rx.recv().await.map_err(|e| format!("Channel: {e}"))?
+}
+
+/// Pre-render a PDF into the rendered PNG cache.
+pub async fn pre_render_pdf(url: &str) -> Result<(), String> {
+    if load_rendered_cache(url)?.is_some() {
+        return Ok(());
+    }
+    let bytes = fetch_pdf_bytes(url).await?;
+    let (tx, rx) = async_channel::bounded::<Result<(), String>>(1);
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        let result = render_pdf_bytes_with_cache(&url, &bytes).map(|_| ());
+        let _ = tx.send_blocking(result);
+    });
+    rx.recv().await.map_err(|e| format!("Channel: {e}"))?
+}
+
+/// Preload a PDF into local cache for offline use, without rendering pages.
+#[allow(dead_code)]
+pub async fn prefetch_pdf(url: &str) -> Result<(), String> {
+    let _ = fetch_pdf_bytes(url).await?;
+    Ok(())
+}
+
+/// Fetch PDF bytes, checking the local disk cache first.
+async fn fetch_pdf_bytes(url: &str) -> Result<Vec<u8>, String> {
+    // 1. Try local cache
+    let cached_path = {
+        let conn = crate::persistence::db().lock().unwrap();
+        crate::persistence::cache::get_pdf_path(&conn, url)
+    };
+    if let Some(path) = cached_path {
+        if let Ok(bytes) = std::fs::read(&path) {
+            return Ok(bytes);
+        }
+    }
+
+    // 2. Download
+    let bytes = reqwest::get(url)
+        .await
+        .map_err(|e| format!("Réseau: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("HTTP: {e}"))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Lecture: {e}"))?;
+
+    // 3. Save to disk cache
+    let cache_dir = crate::persistence::pdf_cache_dir();
+    // Use a hash of the URL as filename to avoid path issues
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        url.hash(&mut hasher);
+        hasher.finish()
+    };
+    let ext = if url.ends_with(".pdf") { "pdf" } else { "bin" };
+    let local_path = cache_dir.join(format!("{hash:016x}.{ext}"));
+    if let Ok(()) = std::fs::write(&local_path, &bytes) {
+        let conn = crate::persistence::db().lock().unwrap();
+        crate::persistence::cache::put_pdf_entry(
+            &conn,
+            url,
+            &local_path.to_string_lossy(),
+            bytes.len() as u64,
+        );
+    }
+
+    Ok(bytes.to_vec())
+}
+
+fn load_rendered_cache(url: &str) -> Result<Option<Vec<RenderedPage>>, String> {
+    let cached = {
+        let conn = crate::persistence::db().lock().unwrap();
+        crate::persistence::cache::get_rendered_pages(&conn, url)
+    };
+    if let Some(paths) = cached {
+        let mut pages = Vec::with_capacity(paths.len());
+        for (idx, path) in paths {
+            let bytes = std::fs::read(&path)
+                .map_err(|e| format!("Lecture PNG: {e}"))?;
+            let data_url = png_bytes_to_data_url(&bytes)?;
+            pages.push(RenderedPage {
+                data_url,
+                index: idx,
+            });
+        }
+        return Ok(Some(pages));
+    }
+    Ok(None)
+}
+
+/// Render all pages of a PDF from raw bytes.
+/// This is a blocking operation — call from a dedicated thread.
+#[allow(dead_code)]
+pub(crate) fn render_pdf_bytes(pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, String> {
+    let pdfium = pdfium_auto::bind_bundled()
+        .map_err(|e| format!("PDFium init: {e}"))?;
+
+    let document = pdfium
+        .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
+        .map_err(|e| format!("PDF ouverture: {e}"))?;
+
+    let page_count = document.pages().len();
+    let mut pages = Vec::with_capacity(page_count as usize);
+
+    for i in 0..page_count {
+        pages.push(render_page(&document, i)?);
+    }
+
+    Ok(pages)
+}
+
+fn render_pdf_bytes_with_cache(url: &str, pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, String> {
+    let pdfium = pdfium_auto::bind_bundled()
+        .map_err(|e| format!("PDFium init: {e}"))?;
+
+    let document = pdfium
+        .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
+        .map_err(|e| format!("PDF ouverture: {e}"))?;
+
+    let page_count = document.pages().len();
+    let mut pages = Vec::with_capacity(page_count as usize);
+
+    let cache_dir = crate::persistence::rendered_cache_dir();
+    let hash = url_hash(url);
+    for i in 0..page_count {
+        let png_bytes = render_page_png(&document, i)?;
+        let data_url = png_bytes_to_data_url(&png_bytes)?;
+        let local_path = cache_dir.join(format!("{hash:016x}_{i}.png"));
+        if std::fs::write(&local_path, &png_bytes).is_ok() {
+            let conn = crate::persistence::db().lock().unwrap();
+            crate::persistence::cache::put_rendered_page(
+                &conn,
+                url,
+                i as usize,
+                &local_path.to_string_lossy(),
+            );
+        }
+        pages.push(RenderedPage {
+            data_url,
+            index: i as usize,
+        });
+    }
+
+    {
+        let conn = crate::persistence::db().lock().unwrap();
+        crate::persistence::cache::prune_rendered_cache(&conn, MAX_RENDERED_PAGES);
+    }
+
+    Ok(pages)
+}
+
+/// Render a single page to a PNG data URL.
+#[allow(dead_code)]
+fn render_page(document: &PdfDocument, index: u16) -> Result<RenderedPage, String> {
+    let png_bytes = render_page_png(document, index)?;
+    let data_url = png_bytes_to_data_url(&png_bytes)?;
+    Ok(RenderedPage {
+        data_url,
+        index: index as usize,
+    })
+}
+
+fn render_page_png(document: &PdfDocument, index: u16) -> Result<Vec<u8>, String> {
+    let page = document
+        .pages()
+        .get(index)
+        .map_err(|e| format!("Page {index}: {e}"))?;
+
+    let config = PdfRenderConfig::new()
+        .set_target_width(RENDER_WIDTH)
+        .set_maximum_height(RENDER_MAX_HEIGHT);
+
+    let bitmap = page
+        .render_with_config(&config)
+        .map_err(|e| format!("Rendu page {index}: {e}"))?;
+
+    bitmap_to_png_bytes(&bitmap, index)
+}
+
+/// Convert a BGRA bitmap to a PNG base64 data URL.
+#[allow(dead_code)]
+fn bitmap_to_data_url(bitmap: &PdfBitmap, page_index: u16) -> Result<String, String> {
+    let png = bitmap_to_png_bytes(bitmap, page_index)?;
+    png_bytes_to_data_url(&png)
+}
+
+fn bitmap_to_png_bytes(bitmap: &PdfBitmap, page_index: u16) -> Result<Vec<u8>, String> {
+    let width = bitmap.width() as usize;
+    let height = bitmap.height() as usize;
+    let bgra = bitmap.as_raw_bytes();
+
+    // BGRA → RGBA
+    let mut rgba = vec![0u8; width * height * 4];
+    for px in 0..(width * height) {
+        let i = px * 4;
+        rgba[i] = bgra[i + 2];     // R ← B
+        rgba[i + 1] = bgra[i + 1]; // G
+        rgba[i + 2] = bgra[i];     // B ← R
+        rgba[i + 3] = bgra[i + 3]; // A
+    }
+
+    let mut png_buf = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut png_buf)
+        .write_image(&rgba, width as u32, height as u32, image::ExtendedColorType::Rgba8)
+        .map_err(|e| format!("PNG encode page {page_index}: {e}"))?;
+
+    Ok(png_buf)
+}
+
+fn png_bytes_to_data_url(bytes: &[u8]) -> Result<String, String> {
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(format!("data:image/png;base64,{b64}"))
+}
+
+fn url_hash(url: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    url.hash(&mut hasher);
+    hasher.finish()
+}

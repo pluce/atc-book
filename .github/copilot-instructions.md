@@ -1,4 +1,4 @@
-# Instructions du projet "vaccfr-book"
+# Instructions du projet "atc-book"
 
 ## Checklist de démarrage
 - [x] Initialiser une nouvelle application Next.js

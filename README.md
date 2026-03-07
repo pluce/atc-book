@@ -1,66 +1,62 @@
-# ATC BOOK
+# ATC-BOOK — Desktop
 
-Outil pour les contrôleurs et pilotes (VATSIM/IVAO) permettant de rechercher, filtrer et télécharger instantanément les cartes aéronautiques du SIA (Service de l'Information Aéronautique).
-
-![ATC BOOK Interface](https://via.placeholder.com/800x400?text=Interface+ATC+BOOK)
+Application desktop native pour la consultation de cartes aéronautiques (eAIP) et NOTAMs, destinée aux contrôleurs et pilotes sur réseau (VATSIM/IVAO).
 
 ## Fonctionnalités
 
-- 🔍 **Recherche OACI** : Récupération instantanée des cartes (ex: LFPG, LFPO).
-- 🏷️ **Filtres Intelligents** : Filtrage par tags (ILS, Pistes, Parking, SID/STAR...).
-- 📦 **Téléchargement Groupé** :
-  - **ZIP** : Télécharger une sélection de cartes en une archive.
-  - **PDF Unique** : Fusionner plusieurs cartes en un seul document PDF.
-- 🌑 **Interface Moderne** : Thème sombre et responsive (mobile/desktop).
-- 🛡️ **Proxy Sécurisé** : Contournement des restrictions CORS du SIA avec validation de sécurité.
+- 🔍 **Recherche multi-sources** : SIA, Atlas VAC, SupAIP, UK NATS, SOFIA (NOTAMs)
+- 📄 **Rendu PDF natif** : Haute fidélité via pdfium-render, avec zoom, fit-to-width et drag-to-pan
+- 📁 **Dossiers de travail** : Regrouper des cartes par position/secteur, avec restauration d'onglets et notes de briefing
+- 📅 **Cycle AIRAC automatique** : Calcul dynamique à partir de l'époque OACI
+- 💾 **Persistance locale** : SQLite embarqué (cache de recherche, cache PDF, dossiers)
 
-## Configuration (Variables d'environnement)
+## Prérequis
 
-Pour fonctionner correctement (et cibler le bon cycle AIRAC), l'application nécessite les variables d'environnement suivantes. 
+- [Rust](https://rustup.rs/) (edition 2024)
+- [Dioxus CLI](https://dioxuslabs.com/) :
+  ```bash
+  curl -sSL http://dioxus.dev/install.sh | sh
+  ```
 
-Créez un fichier `.env.local` à la racine pour le développement, ou configurez ces variables dans votre hébergeur (Vercel, Netlify...) :
+## Lancement
+
+Depuis la racine du workspace :
 
 ```bash
-# Exemple pour le cycle de Janvier 2026
-NEXT_PUBLIC_AIRAC_CYCLE_NAME=eAIP_22_JAN_2026
-NEXT_PUBLIC_AIRAC_DATE=AIRAC-2026-01-22
+dx serve --package atc-book
 ```
 
-> **Note :** Ces valeurs doivent être mises à jour à chaque nouveau cycle AIRAC (tous les 28 jours) pour continuer à récupérer les cartes valides depuis le site du SIA.
+Ou depuis le crate :
 
-## Installation Locale
+```bash
+cd crates/atc-book
+dx serve
+```
 
-1.  Cloner le dépôt :
-    ```bash
-    git clone https://github.com/votre-user/atc-book.git
-    cd atc-book
-    ```
-2.  Installer les dépendances :
-    ```bash
-    npm install
-    ```
-3.  Lancer le serveur de développement :
-    ```bash
-    npm run dev
-    ```
-4.  Ouvrir [http://localhost:3000](http://localhost:3000).
+## Architecture
 
-## Déploiement
-
-Ce projet est conçu pour être déployé facilement sur **Vercel**.
-
-1.  Poussez votre code sur un dépôt Git.
-2.  Importez le projet sur Vercel.
-3.  **IMPORTANT** : Ajoutez les variables d'environnement (`NEXT_PUBLIC_AIRAC_CYCLE_NAME`, `NEXT_PUBLIC_AIRAC_DATE`) dans les paramètres du projet Vercel.
+```
+crates/atc-book/
+├── src/
+│   ├── main.rs            # Point d'entrée Dioxus
+│   ├── models.rs          # Structures de données (Chart, Workspace, Notice)
+│   ├── state.rs           # État global (signaux Dioxus)
+│   ├── airac.rs           # Calcul du cycle AIRAC
+│   ├── pdf.rs             # Pipeline de rendu PDF (pdfium → PNG → base64)
+│   ├── adapters/          # Adaptateurs de données (SIA, Atlas, SupAIP, UK, SOFIA)
+│   ├── persistence/       # Couche SQLite (cache, dossiers)
+│   └── components/        # Composants UI (layout, navigator, workspace, sidebar)
+└── assets/
+    └── main.css           # Design system (palette ambre/ardoise)
+```
 
 ## Technologies
 
-- **Next.js 16** (App Router)
-- **TypeScript**
-- **Tailwind CSS**
-- **Cheerio** (Scraping)
-- **PDF-Lib** (Fusion PDF)
-- **JSZip** (Création d'archives)
+- **Rust** + **Dioxus 0.7** (mode Desktop / WebView)
+- **pdfium-render** (rendu PDF natif)
+- **rusqlite** (SQLite embarqué, WAL)
+- **reqwest** + **scraper** (HTTP / parsing HTML)
+- **chrono**, **uuid**, **serde_json**
 
 ## Crédits
 

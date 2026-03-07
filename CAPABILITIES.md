@@ -1,46 +1,45 @@
-# Fonctionnalités de l'application (Capabilities)
+# Fonctionnalités — ATC-BOOK Desktop
 
-Ce document liste les fonctionnalités clés de l'application ATC BOOK, servant de référence pour les tests End-to-End (E2E).
+Application desktop native (Rust + Dioxus) pour la consultation de cartes aéronautiques et NOTAMs.
+
+---
 
 ## 1. Recherche et Navigation
-- **Recherche de terrain** : L'utilisateur peut entrer un code OACI (ex: LFPG) et lancer une recherche.
-- **Affichage des résultats** : La liste des cartes s'affiche, groupée par catégories (Approche, Atterrissage, etc.).
-- **Feedback visuel** : Indicateurs de chargement lors de la récupération des données.
-- **Persistance URL** : Les paramètres de recherche (icao, filtres) sont reflétés dans l'URL.
+- **Recherche OACI** : Saisie d'un code OACI (4 lettres) avec recherche via Entrée ou bouton.
+- **Multi-sources** : Interrogation parallèle de 5 adaptateurs selon le préfixe OACI :
+  - `LF*` → SIA + Atlas VAC + SupAIP (cartes) + SOFIA (NOTAMs)
+  - `EG*` → UK NATS (cartes)
+  - Autres → SIA uniquement
+- **Résultats groupés** : Cartes organisées par catégorie (Aerodrome, SID, STAR, IAC, VAC, etc.).
+- **Cycle AIRAC** : Calcul automatique du cycle en cours (époque 22 jan 2026, cycles de 28 jours). Affiché dans la barre latérale.
+- **Cache de recherche** : Les résultats sont mis en cache localement (SQLite) pour accélérer les prochaines consultations.
 
-## 2. Filtrage et Tri
-- **Filtre textuel** : Barre de recherche pour filtrer les cartes par nom ou catégorie.
-- **Filtres par Tags** : Boutons pour filtrer par tags spécifiques (ex: "App. Finale", "Nuit").
-- **Tags groupés** : Les tags sont organisés logiquement (Pistes, Approches, Phases, Autres).
+## 2. Visualisation PDF
+- **Rendu natif** : Rendu haute-fidélité via pdfium-render (2400×3400 px par page).
+- **Zoom** : Molette ou boutons -/+, avec indicateur de pourcentage et bouton de réinitialisation.
+- **Fit-to-width** : Bouton pour ajuster la largeur du document à l'espace disponible.
+- **Drag-to-pan** : Déplacement du document par glisser-déposer.
+- **Onglets** : Plusieurs cartes ouvertes simultanément avec une barre d'onglets. Fermeture individuelle.
+- **Cache PDF** : Double cache — fichiers sur disque (persistant) + 5 derniers rendus en mémoire (LRU).
 
-## 3. Gestion de la Sélection
-- **Sélection multiple** : Cases à cocher pour sélectionner des cartes individuelles ou des groupes entiers.
-- **Sélection rapide** : Boutons "Tout sélectionner" / "Tout désélectionner".
-- **Compteurs** : Affichage du nombre de cartes visibles et sélectionnées.
+## 3. Dossiers de Travail (Workspaces)
+- **Création / Suppression** : Créer un dossier nommé, supprimer avec confirmation.
+- **Renommage** : Éditeur inline (bouton ✎).
+- **Ajout de cartes** : Via le menu « Dossier » de la barre d'outils document. Dédoublonnage automatique.
+- **Retrait de cartes** : Bouton ✕ sur chaque carte (apparaît au survol). Nettoyage automatique des aéroports sans cartes.
+- **Cartes groupées** : Les cartes sont affichées par aéroport dans l'arborescence du dossier (✈ LFPG (3)).
+- **Chargement / Déchargement** : Bouton ▶ pour restaurer les onglets du dossier, ⏹ pour décharger. Indicateur actif (●).
+- **Ouverture groupée** : Bouton ▶▶ pour ouvrir toutes les cartes du dossier.
+- **Sauvegarde automatique** : L'état des onglets (ouverture, position active) est sauvegardé en temps réel.
+- **Notes de briefing** : Bloc-notes texte intégré par dossier (section ▸ 📝 NOTES, collapsible). Sauvegarde sur perte de focus.
+- **Persistance SQLite** : Tous les dossiers, cartes associées, onglets et notes sont stockés localement.
 
-## 4. Actions sur les cartes
-- **Épingler (Pin)** : Ajouter les cartes sélectionnées au Dock pour un accès rapide.
-- **Fusionner (Merge)** : Combiner les cartes sélectionnées en un seul fichier PDF.
-- **Télécharger (Zip)** : Télécharger les cartes sélectionnées dans une archive ZIP.
-- **Indicateurs d'état** : Spinners lors des opérations de téléchargement ou fusion.
+## 4. Interface
+- **Barre latérale** : Navigation par icônes (Aéroports / Dossiers / Réglages) avec panneau dépliant.
+- **Panneau navigateur** : Arborescence des résultats ou des dossiers selon le mode sélectionné.
+- **Barre d'outils document** : Menu d'ajout au dossier.
+- **Design « Rétro-Technique »** : Palette ambre/ardoise, polices monospace (JetBrains Mono), esthétique instrumentation.
 
-## 5. Dock (Barre d'outils)
-- **Persistance** : Le contenu du Dock est sauvegardé (localStorage).
-- **Positionnement** : Le Dock peut être placé en bas, à gauche ou à droite.
-- **Sauvegarde / Chargement** : 
-  - Possibilité de sauvegarder la configuration actuelle du Dock sous un nom personnalisé.
-  - Gestionnaire de sauvegardes intégré (Liste, Restauration, Suppression).
-  - Accessible même si le Dock est vide (via les sauvegardes).
-- **Auto-fold** : Le Dock se replie automatiquement s'il est vide et sans action utilisateur, mais reste accessible pour le chargement.
-- **Gestion** :
-  - Supprimer une carte spécifique.
-  - Vider tout le Dock.
-  - Ouvrir une carte depuis le Dock.
-
-## 6. Visualisation (Viewer)
-- **Modale** : Affichage des cartes PDF dans une modale superposée.
-- **Navigation** : Bouton de fermeture, touche Echap pour fermer.
-
-## 7. Préférences Utilisateur
-- **Thème** : Bascule entre Mode Clair (Light) et Mode Sombre (Dark).
-- **Langue** : Bascule entre Français (FR) et Anglais (EN).
+## 5. NOTAMs
+- **Source SOFIA** : Récupération des NOTAMs pour les aérodromes français via le PIB SOFIA (DGAC).
+- **Affichage** : Liste des NOTAMs avec identifiant, validité et contenu.
