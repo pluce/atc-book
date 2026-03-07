@@ -161,26 +161,26 @@ jobs:
           fi
           cp -R "$APP_PATH" dist/AtcBook.app
           if [ "${SIGNING_MODE:-ad-hoc}" = "notarized" ]; then
-            cat > dist/README-macos.txt << 'EOF'
-This macOS app is signed and notarized.
-
-If macOS still warns on first launch:
-1. Right-click AtcBook.app and choose Open
-2. Confirm Open
-EOF
+            printf '%s\n' \
+              'This macOS app is signed and notarized.' \
+              '' \
+              'If macOS still warns on first launch:' \
+              '1. Right-click AtcBook.app and choose Open' \
+              '2. Confirm Open' \
+              > dist/README-macos.txt
           else
-            cat > dist/README-macos.txt << 'EOF'
-This macOS app is ad-hoc signed (not notarized).
-macOS Gatekeeper may block it when downloaded from the internet.
-
-To run it locally after extraction:
-
-  xattr -dr com.apple.quarantine AtcBook.app
-
-Alternative:
-1. Right-click AtcBook.app and choose Open
-2. Confirm Open
-EOF
+            printf '%s\n' \
+              'This macOS app is ad-hoc signed (not notarized).' \
+              'macOS Gatekeeper may block it when downloaded from the internet.' \
+              '' \
+              'To run it locally after extraction:' \
+              '' \
+              '  xattr -dr com.apple.quarantine AtcBook.app' \
+              '' \
+              'Alternative:' \
+              '1. Right-click AtcBook.app and choose Open' \
+              '2. Confirm Open' \
+              > dist/README-macos.txt
           fi
           tar -czf "${{ matrix.archive_name }}" -C dist AtcBook.app README-macos.txt
 
