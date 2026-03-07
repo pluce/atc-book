@@ -14,7 +14,7 @@ use dioxus::prelude::*;
 
 use components::layout::AppShell;
 
-const MAIN_CSS: Asset = asset!("/assets/main.css");
+const MAIN_CSS: &str = include_str!("../assets/main.css");
 
 fn main() {
     LaunchBuilder::new()
@@ -31,7 +31,7 @@ fn main() {
 #[component]
 fn App() -> Element {
     rsx! {
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Style { {MAIN_CSS} }
         AppShell {}
     }
 }

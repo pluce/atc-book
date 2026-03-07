@@ -72,12 +72,10 @@ jobs:
             runner: macos-14
             os_id: macos-arm64
             archive_name: atc-book-${{ needs.bump_version.outputs.tag }}-macos-arm64.tar.gz
-            binary_path: target/release/atc-book
           - name: Windows x64
             runner: windows-2022
             os_id: windows-x64
             archive_name: atc-book-${{ needs.bump_version.outputs.tag }}-windows-x64.zip
-            binary_path: target/release/atc-book.exe
 
     steps:
       - name: Checkout tag
@@ -88,9 +86,16 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build release binary
+      - name: Install Dioxus CLI
         shell: bash
-        run: cargo build --release -p atc-book
+        run: |
+          set -euo pipefail
+          curl -sSL https://dioxus.dev/install.sh | sh
+          echo "$HOME/.dioxus/bin" >> "$GITHUB_PATH"
+
+      - name: Build release bundle
+        shell: bash
+        run: dx build --release --package atc-book
 
       - name: Package macOS artifact
         if: matrix.os_id == 'macos-arm64'
@@ -98,15 +103,22 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          cp "${{ matrix.binary_path }}" dist/atc-book
-          tar -czf "${{ matrix.archive_name }}" -C dist atc-book
+          APP_PATH="$(find target/dx/atc-book/release -maxdepth 4 -name "*.app" | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "No .app bundle found under target/dx/atc-book/release" >&2
+            exit 1
+          fi
+          cp -R "$APP_PATH" dist/AtcBook.app
+          tar -czf "${{ matrix.archive_name }}" -C dist AtcBook.app
 
       - name: Package Windows artifact
         if: matrix.os_id == 'windows-x64'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "${{ matrix.binary_path }}" "dist/atc-book.exe"
+          $exe = Get-ChildItem -Path "target/dx/atc-book/release" -Recurse -Filter *.exe | Select-Object -First 1
+          if (-not $exe) { throw "No .exe found under target/dx/atc-book/release" }
+          Copy-Item $exe.FullName "dist/atc-book.exe"
           Compress-Archive -Path "dist/atc-book.exe" -DestinationPath "${{ matrix.archive_name }}"
 
       - name: Upload build artifact

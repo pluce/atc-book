@@ -15,7 +15,7 @@ use dioxus::desktop::use_wry_event_handler;
 use dioxus::desktop::tao::event::Event;
 use dioxus::desktop::WindowEvent;
 
-const MAIN_CSS: Asset = asset!("/assets/main.css");
+const MAIN_CSS: &str = include_str!("../../assets/main.css");
 
 static OPEN_POPOUTS: OnceLock<Mutex<HashMap<String, WindowId>>> = OnceLock::new();
 
@@ -190,7 +190,7 @@ pub fn PopoutRoot(
     });
 
     rsx! {
-        document::Link { rel: "stylesheet", href: MAIN_CSS }
+        document::Style { {MAIN_CSS} }
         div { class: if state.read().night_mode { "app theme-night" } else { "app theme-day" },
             div { class: "app-body",
                 Workspace {}
