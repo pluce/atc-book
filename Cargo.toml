@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 authors = ["Pierre Luce <pluce19@gmail.com>"]
 edition = "2021"
 
