@@ -113,8 +113,7 @@ fn load_rendered_cache(url: &str) -> Result<Option<Vec<RenderedPage>>, String> {
     if let Some(paths) = cached {
         let mut pages = Vec::with_capacity(paths.len());
         for (idx, path) in paths {
-            let bytes = std::fs::read(&path)
-                .map_err(|e| format!("Lecture PNG: {e}"))?;
+            let bytes = std::fs::read(&path).map_err(|e| format!("Lecture PNG: {e}"))?;
             let data_url = png_bytes_to_data_url(&bytes)?;
             pages.push(RenderedPage {
                 data_url,
@@ -130,8 +129,7 @@ fn load_rendered_cache(url: &str) -> Result<Option<Vec<RenderedPage>>, String> {
 /// This is a blocking operation — call from a dedicated thread.
 #[allow(dead_code)]
 pub(crate) fn render_pdf_bytes(pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, String> {
-    let pdfium = pdfium_auto::bind_bundled()
-        .map_err(|e| format!("PDFium init: {e}"))?;
+    let pdfium = pdfium_auto::bind_bundled().map_err(|e| format!("PDFium init: {e}"))?;
 
     let document = pdfium
         .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
@@ -148,8 +146,7 @@ pub(crate) fn render_pdf_bytes(pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, St
 }
 
 fn render_pdf_bytes_with_cache(url: &str, pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, String> {
-    let pdfium = pdfium_auto::bind_bundled()
-        .map_err(|e| format!("PDFium init: {e}"))?;
+    let pdfium = pdfium_auto::bind_bundled().map_err(|e| format!("PDFium init: {e}"))?;
 
     let document = pdfium
         .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
@@ -215,7 +212,7 @@ fn render_page_png(document: &PdfDocument, index: u16) -> Result<Vec<u8>, String
     bitmap_to_png_bytes(&bitmap, index)
 }
 
-/// Convert a BGRA bitmap to a PNG base64 data URL.
+/// Convert a bitmap to a PNG base64 data URL.
 #[allow(dead_code)]
 fn bitmap_to_data_url(bitmap: &PdfBitmap, page_index: u16) -> Result<String, String> {
     let png = bitmap_to_png_bytes(bitmap, page_index)?;
@@ -225,21 +222,16 @@ fn bitmap_to_data_url(bitmap: &PdfBitmap, page_index: u16) -> Result<String, Str
 fn bitmap_to_png_bytes(bitmap: &PdfBitmap, page_index: u16) -> Result<Vec<u8>, String> {
     let width = bitmap.width() as usize;
     let height = bitmap.height() as usize;
-    let bgra = bitmap.as_raw_bytes();
-
-    // BGRA → RGBA
-    let mut rgba = vec![0u8; width * height * 4];
-    for px in 0..(width * height) {
-        let i = px * 4;
-        rgba[i] = bgra[i + 2];     // R ← B
-        rgba[i + 1] = bgra[i + 1]; // G
-        rgba[i + 2] = bgra[i];     // B ← R
-        rgba[i + 3] = bgra[i + 3]; // A
-    }
+    let rgba = bitmap.as_raw_bytes().to_vec();
 
     let mut png_buf = Vec::new();
     image::codecs::png::PngEncoder::new(&mut png_buf)
-        .write_image(&rgba, width as u32, height as u32, image::ExtendedColorType::Rgba8)
+        .write_image(
+            &rgba,
+            width as u32,
+            height as u32,
+            image::ExtendedColorType::Rgba8,
+        )
         .map_err(|e| format!("PNG encode page {page_index}: {e}"))?;
 
     Ok(png_buf)

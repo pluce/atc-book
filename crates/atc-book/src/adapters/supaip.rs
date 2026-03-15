@@ -28,7 +28,10 @@ pub async fn fetch_charts(icao: &str, airac: &AiracCycle) -> Result<Vec<Chart>, 
         .collect();
     let cookie_header = cookies.join("; ");
 
-    let html = resp.text().await.map_err(|e| format!("SupAIP read error: {e}"))?;
+    let html = resp
+        .text()
+        .await
+        .map_err(|e| format!("SupAIP read error: {e}"))?;
     let doc = Html::parse_document(&html);
 
     // Extract form_key from hidden input
@@ -42,10 +45,7 @@ pub async fn fetch_charts(icao: &str, airac: &AiracCycle) -> Result<Vec<Chart>, 
     };
 
     // Step 2: POST search with ICAO location
-    let params = [
-        ("form_key", form_key.as_str()),
-        ("location", icao),
-    ];
+    let params = [("form_key", form_key.as_str()), ("location", icao)];
 
     let resp = client
         .post(page_url)
@@ -55,7 +55,10 @@ pub async fn fetch_charts(icao: &str, airac: &AiracCycle) -> Result<Vec<Chart>, 
         .await
         .map_err(|e| format!("SupAIP POST failed: {e}"))?;
 
-    let result_html = resp.text().await.map_err(|e| format!("SupAIP result read error: {e}"))?;
+    let result_html = resp
+        .text()
+        .await
+        .map_err(|e| format!("SupAIP result read error: {e}"))?;
     let result_doc = Html::parse_document(&result_html);
 
     // Step 3: Parse links with class "lien_sup_aip"
@@ -99,7 +102,11 @@ pub async fn fetch_charts(icao: &str, airac: &AiracCycle) -> Result<Vec<Chart>, 
             id,
             source: ChartSource::SupAip,
             category: ChartCategory::SupAip,
-            subtitle: if title.is_empty() { filename.clone() } else { title },
+            subtitle: if title.is_empty() {
+                filename.clone()
+            } else {
+                title
+            },
             filename,
             provider_relative_url,
             airac_code: airac.code.clone(),

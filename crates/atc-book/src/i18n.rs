@@ -21,7 +21,10 @@ fn detect_language() -> AppLanguage {
 }
 
 pub fn get_language() -> AppLanguage {
-    let mut guard = APP_LANGUAGE.get_or_init(|| Mutex::new(None)).lock().unwrap();
+    let mut guard = APP_LANGUAGE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap();
     if let Some(lang) = *guard {
         lang
     } else {
@@ -32,7 +35,10 @@ pub fn get_language() -> AppLanguage {
 }
 
 pub fn set_language(lang: AppLanguage) {
-    *APP_LANGUAGE.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(lang);
+    *APP_LANGUAGE
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .unwrap() = Some(lang);
 }
 
 pub fn tr(lang: AppLanguage, key: &'static str) -> &'static str {
@@ -53,18 +59,24 @@ pub fn tr(lang: AppLanguage, key: &'static str) -> &'static str {
         (AppLanguage::Uk, "sidebar.workspaces") => "Workspaces",
         (AppLanguage::Fr, "sidebar.settings") => "Reglages",
         (AppLanguage::Uk, "sidebar.settings") => "Settings",
+        (AppLanguage::Fr, "sidebar.help") => "Aide",
+        (AppLanguage::Uk, "sidebar.help") => "Help",
         (AppLanguage::Fr, "nav.airports") => "AEROPORTS",
         (AppLanguage::Uk, "nav.airports") => "AIRPORTS",
         (AppLanguage::Fr, "nav.workspaces") => "DOSSIERS",
         (AppLanguage::Uk, "nav.workspaces") => "WORKSPACES",
         (AppLanguage::Fr, "nav.settings") => "REGLAGES",
         (AppLanguage::Uk, "nav.settings") => "SETTINGS",
+        (AppLanguage::Fr, "nav.help") => "AIDE",
+        (AppLanguage::Uk, "nav.help") => "HELP",
         (AppLanguage::Fr, "search.icao") => "Code OACI...",
         (AppLanguage::Uk, "search.icao") => "ICAO code...",
         (AppLanguage::Fr, "search.go") => "GO",
         (AppLanguage::Uk, "search.go") => "GO",
         (AppLanguage::Fr, "search.loading") => "...",
         (AppLanguage::Uk, "search.loading") => "...",
+        (AppLanguage::Fr, "search.no_results") => "Aucun resultat pour cet aeroport",
+        (AppLanguage::Uk, "search.no_results") => "No result for this airport",
         (AppLanguage::Fr, "search.charts") => "cartes",
         (AppLanguage::Uk, "search.charts") => "charts",
         (AppLanguage::Fr, "workspace.new") => "+ Nouveau dossier",
@@ -165,8 +177,8 @@ pub fn tr(lang: AppLanguage, key: &'static str) -> &'static str {
         (AppLanguage::Uk, "menu.no_result") => "No result",
         (AppLanguage::Fr, "menu.popout_new") => "Pop vers une nouvelle fenetre",
         (AppLanguage::Uk, "menu.popout_new") => "Pop to a new window",
-        (AppLanguage::Fr, "menu.popout_existing") => "Pop vers la fenetre #2",
-        (AppLanguage::Uk, "menu.popout_existing") => "Pop to window #2",
+        (AppLanguage::Fr, "menu.popout_existing") => "Pop vers une fenetre existante",
+        (AppLanguage::Uk, "menu.popout_existing") => "Pop to an existing window",
         (AppLanguage::Fr, "status.active") => "En vigueur",
         (AppLanguage::Uk, "status.active") => "Active",
         (AppLanguage::Fr, "status.expired") => "Expire",
@@ -191,6 +203,62 @@ pub fn tr(lang: AppLanguage, key: &'static str) -> &'static str {
         (AppLanguage::Uk, "settings.theme.auto_time") => "Follow local time",
         (AppLanguage::Fr, "settings.theme.auto_system") => "Selon le systeme",
         (AppLanguage::Uk, "settings.theme.auto_system") => "Follow system setting",
+        (AppLanguage::Fr, "settings.cache") => "Cache",
+        (AppLanguage::Uk, "settings.cache") => "Cache",
+        (AppLanguage::Fr, "settings.cache.clear") => "Vider le cache",
+        (AppLanguage::Uk, "settings.cache.clear") => "Clear cache",
+        (AppLanguage::Fr, "aip.ask.placeholder") => "Rechercher dans le document",
+        (AppLanguage::Uk, "aip.ask.placeholder") => "Search in document",
+        (AppLanguage::Fr, "aip.search.matches") => "Occurrences",
+        (AppLanguage::Uk, "aip.search.matches") => "Matches",
+        (AppLanguage::Fr, "aip.search.no_match") => "Aucune occurrence trouvee dans ce document",
+        (AppLanguage::Uk, "aip.search.no_match") => "No match found in this document",
+        (AppLanguage::Fr, "atis.refresh") => "Rafraîchir",
+        (AppLanguage::Uk, "atis.refresh") => "Refresh",
+        (AppLanguage::Fr, "atis.refreshing") => "Rafraîchissement...",
+        (AppLanguage::Uk, "atis.refreshing") => "Refreshing...",
+        (AppLanguage::Fr, "atis.updated") => "MàJ il y a",
+        (AppLanguage::Uk, "atis.updated") => "Updated",
+        (AppLanguage::Fr, "atis.updated.just_now") => "Mis à jour à l'instant",
+        (AppLanguage::Uk, "atis.updated.just_now") => "Updated just now",
+        (AppLanguage::Fr, "atis.updated.pending") => "Mise à jour en attente",
+        (AppLanguage::Uk, "atis.updated.pending") => "Update pending",
+        (AppLanguage::Fr, "help.section.data") => "Données disponibles",
+        (AppLanguage::Uk, "help.section.data") => "Available data",
+        (AppLanguage::Fr, "help.data.intro") => "Pour chaque aéroport recherché, l'application centralise les informations utiles au briefing :",
+        (AppLanguage::Uk, "help.data.intro") => "For each searched airport, the application centralizes briefing-relevant information:",
+        (AppLanguage::Fr, "help.data.charts") => "Cartes aéroport (SID, STAR, IAC, parking, etc.) selon le cycle AIRAC actif.",
+        (AppLanguage::Uk, "help.data.charts") => "Airport charts (SID, STAR, IAC, parking, etc.) for the active AIRAC cycle.",
+        (AppLanguage::Fr, "help.data.aip") => "Document eAIP texte (quand disponible) ouvrable comme onglet dédié.",
+        (AppLanguage::Uk, "help.data.aip") => "Text eAIP document (when available) openable in a dedicated tab.",
+        (AppLanguage::Fr, "help.data.atis") => "ATIS / METAR / TAF via atis.guru, avec rafraîchissement périodique et manuel.",
+        (AppLanguage::Uk, "help.data.atis") => "ATIS / METAR / TAF via atis.guru, with periodic and manual refresh.",
+        (AppLanguage::Fr, "help.data.notices") => "Notices opérationnels associés à l'aérodrome quand disponibles.",
+        (AppLanguage::Uk, "help.data.notices") => "Operational notices associated with the aerodrome when available.",
+        (AppLanguage::Fr, "help.section.workspaces") => "Workspaces",
+        (AppLanguage::Uk, "help.section.workspaces") => "Workspaces",
+        (AppLanguage::Fr, "help.workspaces.intro") => "Les workspaces servent à préparer un dossier de vol réutilisable :",
+        (AppLanguage::Uk, "help.workspaces.intro") => "Workspaces are used to prepare a reusable flight folder:",
+        (AppLanguage::Fr, "help.workspaces.create") => "Création d'un workspace depuis l'onglet Dossiers.",
+        (AppLanguage::Uk, "help.workspaces.create") => "Create a workspace from the Workspaces panel.",
+        (AppLanguage::Fr, "help.workspaces.load") => "Chargement / déchargement d'un workspace pour définir le contexte actif.",
+        (AppLanguage::Uk, "help.workspaces.load") => "Load/unload a workspace to define the active context.",
+        (AppLanguage::Fr, "help.workspaces.add") => "Ajout rapide des cartes, ATIS et eAIP au workspace actif depuis les résultats.",
+        (AppLanguage::Uk, "help.workspaces.add") => "Quick-add charts, ATIS and eAIP to the active workspace from results.",
+        (AppLanguage::Fr, "help.workspaces.persist") => "Persistance des onglets ouverts et de la mise en page entre les sessions.",
+        (AppLanguage::Uk, "help.workspaces.persist") => "Open tabs and layout are persisted across sessions.",
+        (AppLanguage::Fr, "help.section.view") => "Options de vue",
+        (AppLanguage::Uk, "help.section.view") => "View options",
+        (AppLanguage::Fr, "help.view.intro") => "L'interface propose plusieurs options d'affichage pour adapter le cockpit de travail :",
+        (AppLanguage::Uk, "help.view.intro") => "The interface provides several display options to adapt your working cockpit:",
+        (AppLanguage::Fr, "help.view.tab_actions") => "Menu d'actions d'onglet (envoyer vers dossier, popout vers nouvelle/fenêtre existante).",
+        (AppLanguage::Uk, "help.view.tab_actions") => "Tab actions menu (send to workspace, popout to new/existing window).",
+        (AppLanguage::Fr, "help.view.zoom") => "Contrôle de zoom PDF par onglet (moins, plus, fit).",
+        (AppLanguage::Uk, "help.view.zoom") => "Per-tab PDF zoom controls (minus, plus, fit).",
+        (AppLanguage::Fr, "help.view.notes") => "Onglet Notes épinglable en panneau latéral ou utilisable comme onglet normal.",
+        (AppLanguage::Uk, "help.view.notes") => "Notes tab can be pinned as a side panel or used as a normal tab.",
+        (AppLanguage::Fr, "help.view.theme") => "Thème clair/sombre configurable dans Réglages.",
+        (AppLanguage::Uk, "help.view.theme") => "Light/dark theme configurable in Settings.",
         _ => key,
     }
 }

@@ -12,8 +12,16 @@ pub fn StatusBar() -> Element {
     let cycle = airac.read();
     let active = cycle.is_active();
 
-    let dot_cls = if active { "status-dot active" } else { "status-dot expired" };
-    let label = if active { tr(lang, "status.active") } else { tr(lang, "status.expired") };
+    let dot_cls = if active {
+        "status-dot active"
+    } else {
+        "status-dot expired"
+    };
+    let label = if active {
+        tr(lang, "status.active")
+    } else {
+        tr(lang, "status.expired")
+    };
 
     rsx! {
         div { class: "status-bar",

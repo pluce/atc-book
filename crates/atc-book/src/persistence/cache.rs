@@ -10,7 +10,9 @@ pub fn get_cached_search(
     airac_code: &str,
 ) -> Option<(Vec<Chart>, Vec<Notice>)> {
     let mut stmt = conn
-        .prepare("SELECT charts_json, notices_json FROM chart_cache WHERE icao = ?1 AND airac_code = ?2")
+        .prepare(
+            "SELECT charts_json, notices_json FROM chart_cache WHERE icao = ?1 AND airac_code = ?2",
+        )
         .ok()?;
     stmt.query_row(params![icao, airac_code], |row| {
         let charts_json: String = row.get(0)?;
@@ -51,6 +53,23 @@ pub fn put_pdf_entry(conn: &Connection, url: &str, local_path: &str, size_bytes:
          VALUES (?1, ?2, ?3, ?4)",
         params![url, local_path, now, size_bytes as i64],
     );
+}
+
+pub fn put_html_doc(conn: &Connection, url: &str, html: &str) {
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "INSERT OR REPLACE INTO html_doc_cache (url, html, fetched_at) VALUES (?1, ?2, ?3)",
+        params![url, html, now],
+    );
+}
+
+pub fn get_html_doc(conn: &Connection, url: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT html FROM html_doc_cache WHERE url = ?1",
+        params![url],
+        |row| row.get::<_, String>(0),
+    )
+    .ok()
 }
 
 /// Look up a cached PDF file by URL.
@@ -112,7 +131,9 @@ pub fn get_rendered_pages(conn: &Connection, url: &str) -> Option<Vec<(usize, St
 /// Prune rendered PNG cache to keep at most `max_pages` entries.
 pub fn prune_rendered_cache(conn: &Connection, max_pages: usize) {
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM rendered_pdf_cache", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM rendered_pdf_cache", [], |row| {
+            row.get(0)
+        })
         .unwrap_or(0);
     let max_pages = max_pages as i64;
     if count <= max_pages {
@@ -126,7 +147,9 @@ pub fn prune_rendered_cache(conn: &Connection, max_pages: usize) {
         Err(_) => return,
     };
     let rows: Vec<(String, i64, String)> = stmt
-        .query_map(params![to_delete], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+        .query_map(params![to_delete], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
         .ok()
         .map(|r| r.filter_map(|x| x.ok()).collect())
         .unwrap_or_default();
@@ -137,6 +160,28 @@ pub fn prune_rendered_cache(conn: &Connection, max_pages: usize) {
             params![url, page_index],
         );
     }
+}
+
+/// Clear cached PDF files and rendered page images from disk and database.
+pub fn clear_file_caches(conn: &Connection) {
+    let pdf_dir = crate::persistence::pdf_cache_dir();
+    let rendered_dir = crate::persistence::rendered_cache_dir();
+
+    let _ = std::fs::read_dir(&pdf_dir).map(|entries| {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    });
+
+    let _ = std::fs::read_dir(&rendered_dir).map(|entries| {
+        for entry in entries.flatten() {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    });
+
+    let _ = conn.execute("DELETE FROM pdf_cache", []);
+    let _ = conn.execute("DELETE FROM rendered_pdf_cache", []);
+    let _ = conn.execute("DELETE FROM html_doc_cache", []);
 }
 
 #[cfg(test)]
@@ -187,7 +232,12 @@ mod tests {
         assert!(get_pdf_path(&conn, "https://example.com/chart.pdf").is_none());
 
         // Use a path that doesn't exist on disk — should return None even after insert
-        put_pdf_entry(&conn, "https://example.com/chart.pdf", "/tmp/nonexistent_vaccfr_test.pdf", 1024);
+        put_pdf_entry(
+            &conn,
+            "https://example.com/chart.pdf",
+            "/tmp/nonexistent_vaccfr_test.pdf",
+            1024,
+        );
         assert!(get_pdf_path(&conn, "https://example.com/chart.pdf").is_none());
     }
 }

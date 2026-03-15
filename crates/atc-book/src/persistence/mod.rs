@@ -109,6 +109,12 @@ fn migrate(conn: &Connection) {
             PRIMARY KEY (url, page_index)
         );
 
+        CREATE TABLE IF NOT EXISTS html_doc_cache (
+            url         TEXT PRIMARY KEY,
+            html        TEXT NOT NULL,
+            fetched_at  TEXT NOT NULL
+        );
+
         CREATE TABLE IF NOT EXISTS app_settings (
             key   TEXT PRIMARY KEY,
             value TEXT NOT NULL
@@ -124,6 +130,10 @@ fn migrate(conn: &Connection) {
     );
     let _ = conn.execute(
         "ALTER TABLE workspaces ADD COLUMN notes_pinned INTEGER DEFAULT 0",
+        [],
+    );
+    let _ = conn.execute(
+        "ALTER TABLE workspaces ADD COLUMN extra_tabs TEXT NOT NULL DEFAULT '[]'",
         [],
     );
 }

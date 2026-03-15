@@ -37,7 +37,7 @@
     --font-mono: 'JetBrains Mono', 'Space Mono', monospace;
 
     /* Layout */
-    --sidebar-width: 64px;
+    --sidebar-width: 72px;
     --nav-width: 300px;
     --statusbar-height: 28px;
     --tabbar-height: 36px;
@@ -146,6 +146,42 @@ html, body {
     padding: 4px 8px 10px 8px;
 }
 
+.help-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 8px;
+}
+
+.help-section {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(0, 0, 0, 0.12);
+    border-radius: 8px;
+    padding-bottom: 8px;
+}
+
+.help-text {
+    font-family: var(--font-ui);
+    font-size: 12px;
+    color: var(--text-primary);
+    opacity: 0.92;
+    line-height: 1.5;
+    padding: 0 10px 6px 10px;
+}
+
+.help-list {
+    margin: 0;
+    padding: 0 10px 0 26px;
+    color: var(--text-primary);
+    font-family: var(--font-ui);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.help-list li {
+    margin-bottom: 5px;
+}
+
 .app-body {
     display: flex;
     flex: 1;
@@ -181,7 +217,7 @@ html, body {
     letter-spacing: 0.5px;
     text-transform: uppercase;
     transition: color 0.15s, background 0.15s;
-    width: 56px;
+    width: 64px;
     text-align: center;
 }
 
@@ -197,6 +233,11 @@ html, body {
 .sidebar-item .icon {
     font-size: 22px;
     line-height: 1;
+}
+
+.sidebar-item .icon-airport,
+.sidebar-item .icon-settings {
+    font-size: 25px;
 }
 
 .sidebar-info {
@@ -910,37 +951,34 @@ html, body {
     color: var(--red);
 }
 
-/* Floating toolbar */
-.doc-floating-menu {
-    position: absolute;
-    top: 12px;
-    left: 12px;
-    z-index: 40;
+/* Shared viewer header */
+.viewer-header {
     display: flex;
     align-items: center;
-    gap: var(--sp-1);
-    padding: 4px;
+    gap: 10px;
+    min-height: 44px;
+    padding: 6px 12px;
     background: var(--toolbar-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    box-shadow: 0 6px 16px rgba(0,0,0,0.18);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
-.toolbar-label {
-    max-width: 0;
-    overflow: hidden;
-    opacity: 0;
-    white-space: nowrap;
-    transition: max-width 0.15s ease, opacity 0.15s ease;
+.viewer-header-fixed {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
 }
 
-.doc-floating-menu:hover .toolbar-label {
-    max-width: 120px;
-    opacity: 1;
+.viewer-header-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
 }
 
-.doc-floating-menu:hover .toolbar-btn {
-    padding-right: 10px;
+.viewer-actions-menu {
+    display: flex;
+    align-items: center;
 }
 
 .toolbar-btn {
@@ -978,23 +1016,26 @@ html, body {
 /* Toolbar dropdown */
 .toolbar-dropdown-wrapper {
     position: relative;
+    display: inline-flex;
+    align-items: center;
 }
 
 .toolbar-dropdown-wrapper.menu-expanded {
-    background: var(--nav-bg);
-    border-radius: 8px;
-    padding: 4px;
-    border: 1px solid var(--border-color);
-    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+    z-index: 45;
 }
 
 .toolbar-menu-panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 50;
     display: flex;
     align-items: flex-start;
     gap: 8px;
-    margin-top: 6px;
     background: var(--nav-bg);
     border-radius: 6px;
+    border: 1px solid var(--border-color);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.25);
     padding: 4px 0;
     min-width: 220px;
 }
@@ -1200,11 +1241,11 @@ html, body {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 32px;
-    padding: 0 var(--sp-2);
-    background: var(--paper-bg);
-    border-bottom: 1px solid var(--border-color);
-    flex-shrink: 0;
+    width: 100%;
+    min-height: 30px;
+    padding: 0;
+    background: transparent;
+    border: none;
 }
 
 .doc-meta-left {
@@ -1339,6 +1380,7 @@ html, body {
     background: #0b1220;
 }
 
+
 .pdf-embed {
     width: 100%;
     height: 100%;
@@ -1386,6 +1428,172 @@ html, body {
 
 .pdf-nav-btn:hover {
     border-color: var(--amber);
+}
+
+.aip-doc-viewer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    overflow: hidden;
+}
+
+.aip-topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+}
+
+.aip-question-input {
+    flex: 1;
+    min-height: 28px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--paper-bg);
+    color: var(--paper-text);
+    font-family: var(--font-ui);
+    font-size: 14px;
+    padding: 4px 10px;
+    outline: none;
+}
+
+.aip-question-input:focus {
+    border-color: var(--amber);
+}
+
+.aip-doc-scroll {
+    flex: 1;
+    overflow: auto;
+    padding: 14px;
+    background: var(--paper-bg);
+}
+
+.aip-doc-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    color: var(--paper-text);
+}
+
+/* --- eAIP content overrides ------------------------------------------- */
+
+/* Images: never overflow the container */
+.aip-doc-content img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* Tables: full-width, collapsed borders, readable in dark mode */
+.aip-doc-content table {
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 100%;
+    font-size: 13px;
+    margin: 12px 0;
+    background: transparent;
+}
+
+.aip-doc-content th,
+.aip-doc-content td {
+    border: 1px solid var(--border-color);
+    padding: 6px 10px;
+    vertical-align: top;
+    color: var(--paper-text);
+    background: transparent;
+}
+
+.aip-doc-content th {
+    background: rgba(255,255,255,0.06);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+/* Zebra striping */
+.aip-doc-content tr:nth-child(even) td {
+    background: rgba(255,255,255,0.03);
+}
+
+/* Force light text on dark-coloured header cells from the eAIP */
+.aip-doc-content th[bgcolor],
+.aip-doc-content td[bgcolor] {
+    color: var(--paper-text) !important;
+}
+
+/* Headings */
+.aip-doc-content h1,
+.aip-doc-content h2,
+.aip-doc-content h3,
+.aip-doc-content h4 {
+    color: var(--paper-text);
+    margin: 1em 0 0.4em;
+    line-height: 1.3;
+}
+
+/* Paragraphs and lists */
+.aip-doc-content p {
+    margin: 0.5em 0;
+    line-height: 1.55;
+}
+
+.aip-doc-content ul,
+.aip-doc-content ol {
+    padding-left: 1.6em;
+    margin: 0.4em 0;
+}
+
+/* Links */
+.aip-doc-content a {
+    color: var(--amber);
+    text-decoration: none;
+}
+.aip-doc-content a:hover {
+    text-decoration: underline;
+}
+
+/* Pre/code */
+.aip-doc-content pre,
+.aip-doc-content code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 4px;
+    padding: 2px 4px;
+}
+
+/* Override any hard-coded colours from the original CSS */
+.aip-doc-content [style*="color:"],
+.aip-doc-content [style*="color :"] {
+    color: inherit !important;
+}
+.aip-doc-content [style*="background-color"],
+.aip-doc-content [style*="background:white"],
+.aip-doc-content [style*="background: white"],
+.aip-doc-content [style*="background:#fff"],
+.aip-doc-content [style*="background: #fff"] {
+    background: transparent !important;
+}
+
+/* Horizontal rules */
+.aip-doc-content hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 16px 0;
+}
+
+.aip-doc-content mark.aip-hit {
+    background: #fff2a8;
+    color: #111827;
+    border-radius: 2px;
+    padding: 0 1px;
+}
+
+.aip-doc-content mark.aip-hit.active-hit {
+    background: #f59e0b;
+    color: #0b1220;
 }
 
 .pdf-nav-label {
@@ -1532,3 +1740,162 @@ html, body {
     cursor: default;
 }
 
+
+/* ===========================================================
+   ATIS / METAR / TAF Viewer
+   =========================================================== */
+
+.badge-atis {
+    background: #0284c7;
+    color: #fff;
+}
+
+.atis-viewer {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    padding: 0;
+    background: var(--paper-bg);
+    color: var(--paper-text);
+    font-family: var(--font-ui);
+}
+
+.atis-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+}
+
+.atis-header-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--paper-text);
+}
+
+.atis-header-title,
+.atis-header-icao {
+    font-weight: 600;
+}
+
+.atis-header-row {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.atis-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.atis-refresh-status {
+    font-family: var(--font-ui);
+    font-size: 11px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.atis-refresh-btn {
+    white-space: nowrap;
+}
+
+.notes-tab-view {
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.atis-loading,
+.atis-error {
+    padding: 40px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.atis-error {
+    color: var(--red);
+}
+
+.atis-content {
+    max-width: 760px;
+    margin: 0 auto;
+}
+
+.atis-title {
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: var(--paper-text);
+    letter-spacing: 0.02em;
+}
+
+.atis-card {
+    background: var(--toolbar-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.theme-night .atis-card {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.08);
+}
+
+.atis-card-header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.04);
+}
+
+.theme-night .atis-card-header {
+    background: rgba(255, 255, 255, 0.03);
+    border-color: rgba(255, 255, 255, 0.06);
+}
+
+.atis-card-title {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--amber);
+}
+
+.atis-card-ts {
+    font-size: 11px;
+    color: var(--text-secondary);
+}
+
+.atis-text {
+    margin: 0;
+    padding: 14px 16px;
+    font-family: var(--font-mono);
+    font-size: 12.5px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: var(--paper-text);
+    background: transparent;
+}
+
+.atis-metar {
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.atis-taf {
+    font-size: 12.5px;
+}

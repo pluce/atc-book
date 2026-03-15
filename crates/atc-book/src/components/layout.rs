@@ -1,4 +1,7 @@
 use dioxus::prelude::*;
+use dioxus::desktop::tao::event::Event;
+use dioxus::desktop::use_wry_event_handler;
+use dioxus::desktop::WindowEvent;
 use futures_timer::Delay;
 use std::time::Duration;
 
@@ -13,6 +16,57 @@ use super::workspace::Workspace;
 
 #[component]
 pub fn AppShell() -> Element {
+    let desktop = dioxus::desktop::use_window();
+    let mut restored_popouts = use_signal(|| false);
+
+    {
+        let desktop = desktop.clone();
+        use_wry_event_handler(move |event, _| match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            }
+            | Event::WindowEvent {
+                event: WindowEvent::Destroyed,
+                ..
+            } => {
+                crate::components::popout::close_all_popouts(&desktop);
+            }
+            _ => {}
+        });
+    }
+
+    // Reopen persisted workspace popout windows when the app starts.
+    use_effect(move || {
+        if restored_popouts() {
+            return;
+        }
+        restored_popouts.set(true);
+        spawn(async move {
+            let workspace_ids: Vec<String> = {
+                let conn = crate::persistence::db().lock().unwrap();
+                let workspaces = crate::persistence::workspaces::list_workspaces(&conn);
+                workspaces
+                    .iter()
+                    .filter_map(|ws| {
+                        let (tabs, _) = crate::persistence::workspaces::load_popout_tab_state(&conn, &ws.id);
+                        if tabs.is_empty() {
+                            None
+                        } else {
+                            Some(ws.id.clone())
+                        }
+                    })
+                    .collect()
+            };
+
+            for ws_id in workspace_ids {
+                if !crate::components::popout::has_workspace_popout(&ws_id) {
+                    crate::components::popout::open_workspace_popout(ws_id).await;
+                }
+            }
+        });
+    });
+
     let mut state = use_signal(|| {
         // Load saved workspaces from DB at startup
         let mut app = AppState::default();

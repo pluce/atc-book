@@ -11,6 +11,12 @@ pub enum ChartSource {
     Uk,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AipDocSource {
+    Sia,
+    Uk,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ChartCategory {
     Aerodrome,
@@ -79,15 +85,13 @@ pub struct Chart {
 
 impl Chart {
     pub fn display_title(&self) -> &str {
-        self.custom_title
-            .as_deref()
-            .unwrap_or_else(|| {
-                if self.subtitle.is_empty() {
-                    self.category.label()
-                } else {
-                    &self.subtitle
-                }
-            })
+        self.custom_title.as_deref().unwrap_or_else(|| {
+            if self.subtitle.is_empty() {
+                self.category.label()
+            } else {
+                &self.subtitle
+            }
+        })
     }
 
     fn provider_base_for_airac(&self, airac: &AiracCycle) -> String {
@@ -158,6 +162,8 @@ pub struct Workspace {
     pub open_tabs: Vec<String>,
     /// Index de l'onglet actif
     pub active_tab_index: Option<usize>,
+    /// Onglets eAIP et ATIS persistés (non-carte)
+    pub extra_tabs: Vec<ExtraTab>,
     /// Notes de briefing
     pub notes: Option<String>,
     /// Etat d'epingle du panneau Notes pour ce workspace
@@ -168,9 +174,65 @@ pub struct Workspace {
     pub updated_at: String,
 }
 
+/// Un onglet non-carte (eAIP ou ATIS) persisté dans un workspace.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ExtraTab {
+    Atis { icao: String },
+    AipDoc { doc: AipDocument },
+}
+
 /// Référence à une carte dans un workspace, associée à un aéroport
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WorkspaceChart {
     pub airport: String,
     pub chart: Chart,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AipDocument {
+    pub id: String,
+    pub icao: String,
+    pub source: AipDocSource,
+    pub provider_relative_url: String,
+    pub airac_code: String,
+}
+
+impl AipDocument {
+    pub fn title(&self) -> String {
+        match self.source {
+            AipDocSource::Sia => format!("AIP {} (SIA)", self.icao),
+            AipDocSource::Uk => format!("AIP {} (NATS)", self.icao),
+        }
+    }
+
+    fn provider_base_for_airac(&self, airac: &AiracCycle) -> String {
+        match self.source {
+            AipDocSource::Sia => format!(
+                "https://www.sia.aviation-civile.gouv.fr/media/dvd/{}/FRANCE/{}/html/eAIP",
+                airac.sia_cycle_name(),
+                airac.sia_airac_date(),
+            ),
+            AipDocSource::Uk => format!(
+                "https://www.aurora.nats.co.uk/htmlAIP/Publications/{}/html/eAIP",
+                airac.nats_airac_part(),
+            ),
+        }
+    }
+
+    pub fn url_for_airac(&self, airac: &AiracCycle) -> String {
+        if self.provider_relative_url.starts_with("http://")
+            || self.provider_relative_url.starts_with("https://")
+        {
+            return self.provider_relative_url.clone();
+        }
+
+        let base = self.provider_base_for_airac(airac);
+        let rel = self.provider_relative_url.trim_start_matches('/');
+        format!("{}/{}", base.trim_end_matches('/'), rel)
+    }
+
+    pub fn runtime_url(&self) -> String {
+        self.url_for_airac(&AiracCycle::current())
+    }
 }

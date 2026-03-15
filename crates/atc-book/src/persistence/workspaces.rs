@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use rusqlite::{params, Connection};
 
-use crate::models::{Chart, Workspace, WorkspaceChart};
+use crate::models::{Chart, ExtraTab, Workspace, WorkspaceChart};
 
 /// List all workspaces, ordered by most recently updated first.
 pub fn list_workspaces(conn: &Connection) -> Vec<Workspace> {
     let mut stmt = match conn.prepare(
-        "SELECT id, name, airports, notes, notes_pinned, notes_panel_width, open_tabs, active_tab, created_at, updated_at
+        "SELECT id, name, airports, notes, notes_pinned, notes_panel_width, open_tabs, active_tab, created_at, updated_at, extra_tabs
          FROM workspaces ORDER BY updated_at DESC",
     ) {
         Ok(s) => s,
@@ -27,6 +27,7 @@ pub fn list_workspaces(conn: &Connection) -> Vec<Workspace> {
                 row.get::<_, Option<i64>>(7)?,
                 row.get::<_, String>(8)?,
                 row.get::<_, String>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         })
         .ok()
@@ -34,26 +35,44 @@ pub fn list_workspaces(conn: &Connection) -> Vec<Workspace> {
         .unwrap_or_default();
 
     rows.into_iter()
-        .map(|(id, name, airports_json, notes, notes_pinned, notes_panel_width, tabs_json, active_tab, created, updated)| {
-            let airports: Vec<String> =
-                serde_json::from_str(&airports_json).unwrap_or_default();
-            let open_tabs: Vec<String> =
-                serde_json::from_str(&tabs_json).unwrap_or_default();
-            let chart_refs = load_workspace_charts(conn, &id);
-            Workspace {
+        .map(
+            |(
                 id,
                 name,
-                airports,
-                chart_refs,
-                open_tabs,
-                active_tab_index: active_tab.map(|i| i as usize),
+                airports_json,
                 notes,
-                notes_pinned: notes_pinned.map(|v| v != 0),
-                notes_panel_width: notes_panel_width.map(|v| v as i32),
-                created_at: created,
-                updated_at: updated,
-            }
-        })
+                notes_pinned,
+                notes_panel_width,
+                tabs_json,
+                active_tab,
+                created,
+                updated,
+                extra_tabs_json,
+            )| {
+                let airports: Vec<String> =
+                    serde_json::from_str(&airports_json).unwrap_or_default();
+                let open_tabs: Vec<String> = serde_json::from_str(&tabs_json).unwrap_or_default();
+                let extra_tabs: Vec<ExtraTab> = extra_tabs_json
+                    .as_deref()
+                    .and_then(|j| serde_json::from_str(j).ok())
+                    .unwrap_or_default();
+                let chart_refs = load_workspace_charts(conn, &id);
+                Workspace {
+                    id,
+                    name,
+                    airports,
+                    chart_refs,
+                    open_tabs,
+                    active_tab_index: active_tab.map(|i| i as usize),
+                    extra_tabs,
+                    notes,
+                    notes_pinned: notes_pinned.map(|v| v != 0),
+                    notes_panel_width: notes_panel_width.map(|v| v as i32),
+                    created_at: created,
+                    updated_at: updated,
+                }
+            },
+        )
         .collect()
 }
 
@@ -62,9 +81,10 @@ pub fn create_workspace(conn: &Connection, ws: &Workspace) {
     let now = chrono::Utc::now().to_rfc3339();
     let airports_json = serde_json::to_string(&ws.airports).unwrap_or_default();
     let tabs_json = serde_json::to_string(&ws.open_tabs).unwrap_or_default();
+    let extra_tabs_json = serde_json::to_string(&ws.extra_tabs).unwrap_or_else(|_| "[]".to_string());
     let _ = conn.execute(
-        "INSERT INTO workspaces (id, name, airports, notes, notes_pinned, notes_panel_width, open_tabs, active_tab, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO workspaces (id, name, airports, notes, notes_pinned, notes_panel_width, open_tabs, active_tab, extra_tabs, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             ws.id,
             ws.name,
@@ -74,6 +94,7 @@ pub fn create_workspace(conn: &Connection, ws: &Workspace) {
             ws.notes_panel_width.map(|v| v as i64),
             tabs_json,
             ws.active_tab_index.map(|i| i as i64),
+            extra_tabs_json,
             now,
             now
         ],
@@ -165,15 +186,13 @@ pub fn remove_chart_from_workspace(
 
 /// Add a chart to a workspace under a given airport.
 /// Does nothing if the chart is already present for that airport.
-pub fn add_chart_to_workspace(
-    conn: &Connection,
-    workspace_id: &str,
-    airport: &str,
-    chart: &Chart,
-) {
+pub fn add_chart_to_workspace(conn: &Connection, workspace_id: &str, airport: &str, chart: &Chart) {
     // Dedup check: skip if chart already exists in this workspace+airport
     let existing = load_workspace_charts(conn, workspace_id);
-    if existing.iter().any(|wc| wc.airport == airport && wc.chart.id == chart.id) {
+    if existing
+        .iter()
+        .any(|wc| wc.airport == airport && wc.chart.id == chart.id)
+    {
         return;
     }
     let next_pos: i64 = conn
@@ -219,12 +238,19 @@ pub fn add_chart_to_workspace(
 }
 
 /// Update the display name for a chart inside a workspace.
-pub fn set_chart_custom_title(conn: &Connection, workspace_id: &str, chart_id: &str, title: Option<&str>) {
+pub fn set_chart_custom_title(
+    conn: &Connection,
+    workspace_id: &str,
+    chart_id: &str,
+    title: Option<&str>,
+) {
     let mut charts = load_workspace_charts(conn, workspace_id);
     let mut updated = false;
     for wc in charts.iter_mut() {
         if wc.chart.id == chart_id {
-            wc.chart.custom_title = title.map(|t| t.to_string()).filter(|t| !t.trim().is_empty());
+            wc.chart.custom_title = title
+                .map(|t| t.to_string())
+                .filter(|t| !t.trim().is_empty());
             updated = true;
         }
     }
@@ -271,17 +297,88 @@ pub fn save_tab_state(
     workspace_id: &str,
     open_tabs: &[String],
     active_tab: Option<usize>,
+    extra_tabs: &[ExtraTab],
 ) {
     let tabs_json = serde_json::to_string(open_tabs).unwrap_or_default();
+    let extra_tabs_json = serde_json::to_string(extra_tabs).unwrap_or_else(|_| "[]".to_string());
     let now = chrono::Utc::now().to_rfc3339();
     let _ = conn.execute(
-        "UPDATE workspaces SET open_tabs = ?1, active_tab = ?2, updated_at = ?3 WHERE id = ?4",
-        params![tabs_json, active_tab.map(|i| i as i64), now, workspace_id],
+        "UPDATE workspaces SET open_tabs = ?1, active_tab = ?2, extra_tabs = ?3, updated_at = ?4 WHERE id = ?5",
+        params![tabs_json, active_tab.map(|i| i as i64), extra_tabs_json, now, workspace_id],
+    );
+}
+
+/// Add an ExtraTab (ATIS or AipDoc) to a workspace.
+/// No-op if the tab is already present (identified by ICAO / doc.id).
+pub fn add_extra_tab(conn: &Connection, workspace_id: &str, tab: &ExtraTab) {
+    let current: Vec<ExtraTab> = conn
+        .query_row(
+            "SELECT COALESCE(extra_tabs, '[]') FROM workspaces WHERE id = ?1",
+            params![workspace_id],
+            |row| {
+                let json: String = row.get(0)?;
+                Ok(serde_json::from_str::<Vec<ExtraTab>>(&json).unwrap_or_default())
+            },
+        )
+        .unwrap_or_default();
+
+    let already = match tab {
+        ExtraTab::Atis { icao } => current
+            .iter()
+            .any(|t| matches!(t, ExtraTab::Atis { icao: i } if i == icao)),
+        ExtraTab::AipDoc { doc } => current
+            .iter()
+            .any(|t| matches!(t, ExtraTab::AipDoc { doc: d } if d.id == doc.id)),
+    };
+    if already {
+        return;
+    }
+
+    let mut updated = current;
+    updated.push(tab.clone());
+    let json = serde_json::to_string(&updated).unwrap_or_else(|_| "[]".to_string());
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "UPDATE workspaces SET extra_tabs = ?1, updated_at = ?2 WHERE id = ?3",
+        params![json, now, workspace_id],
+    );
+}
+
+/// Remove an ExtraTab from a workspace.
+pub fn remove_extra_tab(conn: &Connection, workspace_id: &str, tab: &ExtraTab) {
+    let current: Vec<ExtraTab> = conn
+        .query_row(
+            "SELECT COALESCE(extra_tabs, '[]') FROM workspaces WHERE id = ?1",
+            params![workspace_id],
+            |row| {
+                let json: String = row.get(0)?;
+                Ok(serde_json::from_str::<Vec<ExtraTab>>(&json).unwrap_or_default())
+            },
+        )
+        .unwrap_or_default();
+
+    let updated: Vec<ExtraTab> = current
+        .into_iter()
+        .filter(|t| match (t, tab) {
+            (ExtraTab::Atis { icao: a }, ExtraTab::Atis { icao: b }) => a != b,
+            (ExtraTab::AipDoc { doc: a }, ExtraTab::AipDoc { doc: b }) => a.id != b.id,
+            _ => true,
+        })
+        .collect();
+
+    let json = serde_json::to_string(&updated).unwrap_or_else(|_| "[]".to_string());
+    let now = chrono::Utc::now().to_rfc3339();
+    let _ = conn.execute(
+        "UPDATE workspaces SET extra_tabs = ?1, updated_at = ?2 WHERE id = ?3",
+        params![json, now, workspace_id],
     );
 }
 
 /// Load popout tabs for a workspace (window #2).
-pub fn load_popout_tab_state(conn: &Connection, workspace_id: &str) -> (Vec<String>, Option<usize>) {
+pub fn load_popout_tab_state(
+    conn: &Connection,
+    workspace_id: &str,
+) -> (Vec<String>, Option<usize>) {
     conn.query_row(
         "SELECT tab_ids_json, active_tab FROM workspace_popout_tabs WHERE workspace_id = ?1",
         params![workspace_id],
@@ -317,9 +414,9 @@ pub fn save_popout_tab_state(
 
 /// Load per-chart zoom levels for a workspace.
 pub fn load_chart_zoom(conn: &Connection, workspace_id: &str) -> HashMap<String, u32> {
-    let mut stmt = match conn.prepare(
-        "SELECT chart_id, zoom FROM workspace_chart_zoom WHERE workspace_id = ?1",
-    ) {
+    let mut stmt = match conn
+        .prepare("SELECT chart_id, zoom FROM workspace_chart_zoom WHERE workspace_id = ?1")
+    {
         Ok(s) => s,
         Err(_) => return HashMap::new(),
     };
@@ -382,10 +479,7 @@ fn save_workspace_charts(conn: &Connection, workspace_id: &str, charts: &[Worksp
     let mut by_airport: std::collections::HashMap<&str, Vec<&Chart>> =
         std::collections::HashMap::new();
     for wc in charts {
-        by_airport
-            .entry(&wc.airport)
-            .or_default()
-            .push(&wc.chart);
+        by_airport.entry(&wc.airport).or_default().push(&wc.chart);
     }
     for (airport, charts) in &by_airport {
         for (i, chart) in charts.iter().enumerate() {
@@ -574,7 +668,10 @@ mod tests {
             .iter()
             .find(|wc| wc.chart.id == "c1")
             .expect("chart c1 should exist");
-        assert_eq!(chart.chart.custom_title.as_deref(), Some("Final APP RWY 26"));
+        assert_eq!(
+            chart.chart.custom_title.as_deref(),
+            Some("Final APP RWY 26")
+        );
     }
 
     #[test]
@@ -603,7 +700,10 @@ mod tests {
         assert_eq!(list_workspaces(&conn)[0].notes, None);
 
         save_notes(&conn, "w1", Some("Briefing: RWY 26L in use"));
-        assert_eq!(list_workspaces(&conn)[0].notes.as_deref(), Some("Briefing: RWY 26L in use"));
+        assert_eq!(
+            list_workspaces(&conn)[0].notes.as_deref(),
+            Some("Briefing: RWY 26L in use")
+        );
 
         save_notes(&conn, "w1", None);
         assert_eq!(list_workspaces(&conn)[0].notes, None);

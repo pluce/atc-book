@@ -8,14 +8,12 @@ use crate::models::{Chart, ChartCategory, ChartSource};
 
 static EXCLUDED_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)(DATA|TEXT|TXT|VPE|PATC)").unwrap());
-static RWY_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"RWY_(\d{2}[LRC]?)").unwrap());
+static RWY_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"RWY_(\d{2}[LRC]?)").unwrap());
 static CAT_ILS_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)CAT_(I{1,3}(?:_I{1,3})*)").unwrap());
 static CATEGORY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"_(ADC|APDC|GMC|SID|STAR|IAC|VAC|VLC|TEM)_").unwrap());
-static RWY_STRIP_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"_?RWY_\w+").unwrap());
+static RWY_STRIP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"_?RWY_\w+").unwrap());
 pub(crate) static INSTR_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)_INSTR_\d{2}\.pdf$").unwrap());
 
@@ -219,12 +217,10 @@ fn extract_subtitle(upper: &str, icao: &str) -> String {
         .replace(&icao.to_uppercase(), "");
 
     // Remove category codes
-    let cleaned = CATEGORY_RE
-        .replace_all(&name, "_");
+    let cleaned = CATEGORY_RE.replace_all(&name, "_");
 
     // Remove RWY parts
-    let cleaned = RWY_STRIP_RE
-        .replace_all(&cleaned, "");
+    let cleaned = RWY_STRIP_RE.replace_all(&cleaned, "");
 
     // Clean up underscores
     let cleaned = cleaned
@@ -282,14 +278,35 @@ mod tests {
 
     #[test]
     fn test_detect_category() {
-        assert_eq!(detect_category("AD_2_LFPG_ADC_01.PDF"), ChartCategory::Aerodrome);
-        assert_eq!(detect_category("AD_2_LFPG_APDC_01.PDF"), ChartCategory::Parking);
-        assert_eq!(detect_category("AD_2_LFPG_GMC_01.PDF"), ChartCategory::Ground);
-        assert_eq!(detect_category("AD_2_LFPG_SID_RWY_27L.PDF"), ChartCategory::Sid);
-        assert_eq!(detect_category("AD_2_LFPG_STAR_RWY_09R.PDF"), ChartCategory::Star);
-        assert_eq!(detect_category("AD_2_LFPG_IAC_RWY_27L.PDF"), ChartCategory::Iac);
+        assert_eq!(
+            detect_category("AD_2_LFPG_ADC_01.PDF"),
+            ChartCategory::Aerodrome
+        );
+        assert_eq!(
+            detect_category("AD_2_LFPG_APDC_01.PDF"),
+            ChartCategory::Parking
+        );
+        assert_eq!(
+            detect_category("AD_2_LFPG_GMC_01.PDF"),
+            ChartCategory::Ground
+        );
+        assert_eq!(
+            detect_category("AD_2_LFPG_SID_RWY_27L.PDF"),
+            ChartCategory::Sid
+        );
+        assert_eq!(
+            detect_category("AD_2_LFPG_STAR_RWY_09R.PDF"),
+            ChartCategory::Star
+        );
+        assert_eq!(
+            detect_category("AD_2_LFPG_IAC_RWY_27L.PDF"),
+            ChartCategory::Iac
+        );
         assert_eq!(detect_category("AD_2_LFPG_VAC_01.PDF"), ChartCategory::Vac);
-        assert_eq!(detect_category("SOME_RANDOM_FILE.PDF"), ChartCategory::Other);
+        assert_eq!(
+            detect_category("SOME_RANDOM_FILE.PDF"),
+            ChartCategory::Other
+        );
     }
 
     #[test]

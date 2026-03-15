@@ -1,9 +1,12 @@
 use dioxus::prelude::*;
 
 use crate::adapters;
+use crate::application::tabs as tab_usecases;
+use crate::application::ports::workspace_repository::WorkspaceRepository;
+use crate::adapters::workspace_repository_sqlite::SqliteWorkspaceRepository;
 use crate::i18n::{set_language, tr, AppLanguage};
 use crate::models::ChartCategory;
-use crate::state::{set_theme_mode, AppState, SidebarMode, Tab, TabContent, ThemeMode};
+use crate::state::{set_theme_mode, AppState, SidebarMode, TabContent, ThemeMode};
 
 fn commit_chart_custom_title(
     state: &mut Signal<AppState>,
@@ -20,7 +23,12 @@ fn commit_chart_custom_title(
 
     let workspaces = {
         let conn = crate::persistence::db().lock().unwrap();
-        crate::persistence::workspaces::set_chart_custom_title(&conn, workspace_id, chart_id, title_opt);
+        crate::persistence::workspaces::set_chart_custom_title(
+            &conn,
+            workspace_id,
+            chart_id,
+            title_opt,
+        );
         crate::persistence::workspaces::list_workspaces(&conn)
     };
 
@@ -41,21 +49,94 @@ fn commit_chart_custom_title(
 
 fn reload_workspaces(state: &mut Signal<AppState>) {
     let conn = crate::persistence::db().lock().unwrap();
-    state.write().workspaces = crate::persistence::workspaces::list_workspaces(&conn);
+    let repo = SqliteWorkspaceRepository::new(&conn);
+    state.write().workspaces = repo.list_workspaces();
 }
 
-fn open_all_workspace_charts(state: &mut Signal<AppState>, chart_refs: &[crate::models::WorkspaceChart]) {
+fn add_chart_to_workspace_and_reload(
+    state: &mut Signal<AppState>,
+    ws_id: &str,
+    airport: &str,
+    chart: &crate::models::Chart,
+) {
+    let conn = crate::persistence::db().lock().unwrap();
+    let repo = SqliteWorkspaceRepository::new(&conn);
+    repo.add_chart_to_workspace(ws_id, airport, chart);
+    state.write().workspaces = repo.list_workspaces();
+}
+
+fn add_extra_tab_to_workspace_and_reload(
+    state: &mut Signal<AppState>,
+    ws_id: &str,
+    tab: crate::models::ExtraTab,
+) {
+    let conn = crate::persistence::db().lock().unwrap();
+    let repo = SqliteWorkspaceRepository::new(&conn);
+    repo.add_extra_tab(ws_id, &tab);
+    state.write().workspaces = repo.list_workspaces();
+}
+
+fn remove_extra_tab_from_workspace_and_reload(
+    state: &mut Signal<AppState>,
+    ws_id: &str,
+    tab: crate::models::ExtraTab,
+) {
+    let conn = crate::persistence::db().lock().unwrap();
+    let repo = SqliteWorkspaceRepository::new(&conn);
+    repo.remove_extra_tab(ws_id, &tab);
+    state.write().workspaces = repo.list_workspaces();
+}
+
+fn trigger_airport_search(
+    state: &mut Signal<AppState>,
+    airac: crate::airac::AiracCycle,
+    icao: String,
+    last_requested_icao: &mut Signal<String>,
+    last_completed_icao: &mut Signal<String>,
+) {
+    if icao.len() < 4 {
+        return;
+    }
+
+    if last_requested_icao() == icao && (state.read().loading || last_completed_icao() == icao) {
+        return;
+    }
+
+    last_requested_icao.set(icao.clone());
+
+    let mut state = state.clone();
+    let mut last_completed_icao = last_completed_icao.clone();
+    spawn(async move {
+        {
+            let mut s = state.write();
+            s.loading = true;
+            s.error = None;
+            s.charts.clear();
+            s.notices.clear();
+            s.aip_doc = None;
+        }
+
+        let result = adapters::search_airport(&icao, &airac).await;
+
+        {
+            let mut s = state.write();
+            s.charts = result.charts;
+            s.notices = result.notices;
+            s.aip_doc = result.aip_doc;
+            s.error = result.errors.into_iter().next();
+            s.loading = false;
+        }
+
+        last_completed_icao.set(icao);
+    });
+}
+
+fn open_all_workspace_charts(
+    state: &mut Signal<AppState>,
+    chart_refs: &[crate::models::WorkspaceChart],
+) {
     let mut s = state.write();
-    for wc in chart_refs {
-        if !s.tabs.iter().any(|t| t.id == wc.chart.id) {
-            s.tabs.push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
-        }
-    }
-    if let Some(first) = chart_refs.first() {
-        if let Some(idx) = s.tabs.iter().position(|t| t.id == first.chart.id) {
-            s.active_tab = Some(idx);
-        }
-    }
+    tab_usecases::open_all_workspace_charts(&mut s, chart_refs);
 }
 
 fn toggle_workspace_loaded(
@@ -69,10 +150,18 @@ fn toggle_workspace_loaded(
 ) {
     let mut s = state.write();
     if s.active_workspace_id.as_deref() == Some(ws_id) {
-        let (tab_ids, active) = crate::components::workspace::chart_tab_state(&s.tabs, s.active_tab);
+        let (tab_ids, active) = tab_usecases::chart_tab_state(&s.tabs, s.active_tab);
+        let extra_tabs: Vec<crate::models::ExtraTab> = s
+            .workspaces
+            .iter()
+            .find(|w| w.id == ws_id)
+            .map(|w| w.extra_tabs.clone())
+            .unwrap_or_default();
         {
             let conn = crate::persistence::db().lock().unwrap();
-            crate::persistence::workspaces::save_tab_state(&conn, ws_id, &tab_ids, active);
+            crate::persistence::workspaces::save_tab_state(
+                &conn, ws_id, &tab_ids, active, &extra_tabs,
+            );
         }
         s.active_workspace_id = None;
         s.chart_zoom.clear();
@@ -88,12 +177,14 @@ fn toggle_workspace_loaded(
     s.tabs.clear();
     s.pdf_cache.clear();
     s.active_workspace_id = Some(ws_id.to_string());
+    let mut extra_tabs: Vec<crate::models::ExtraTab> = Vec::new();
     {
         let conn = crate::persistence::db().lock().unwrap();
         let fresh = crate::persistence::workspaces::list_workspaces(&conn);
         if let Some(ws) = fresh.iter().find(|w| w.id == ws_id) {
             *open_tabs = ws.open_tabs.clone();
             *active_tab_index = ws.active_tab_index;
+            extra_tabs = ws.extra_tabs.clone();
         }
         s.workspaces = fresh;
     }
@@ -102,23 +193,13 @@ fn toggle_workspace_loaded(
         s.chart_zoom = crate::persistence::workspaces::load_chart_zoom(&conn, ws_id);
     }
     s.notes_pinned = workspace_notes_pinned.unwrap_or(false);
-    s.tabs.push(Tab::notes());
-    if !open_tabs.is_empty() {
-        for tab_id in open_tabs.iter() {
-            if let Some(wc) = chart_refs.iter().find(|c| c.chart.id == *tab_id) {
-                s.tabs.push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
-            }
-        }
-        s.active_tab = active_tab_index.map(|i| (i + 1).min(s.tabs.len() - 1));
-        if s.active_tab.is_none() {
-            s.active_tab = Some(0);
-        }
-    } else {
-        for wc in chart_refs {
-            s.tabs.push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
-        }
-        s.active_tab = Some(0);
-    }
+    tab_usecases::rebuild_workspace_tabs(
+        &mut s,
+        chart_refs,
+        open_tabs,
+        *active_tab_index,
+        &extra_tabs,
+    );
 }
 
 #[component]
@@ -127,7 +208,11 @@ pub fn Navigator() -> Element {
     let nav_open = state.read().nav_open;
     let mode = state.read().sidebar_mode;
 
-    let cls = if nav_open { "navigator" } else { "navigator collapsed" };
+    let cls = if nav_open {
+        "navigator"
+    } else {
+        "navigator collapsed"
+    };
 
     rsx! {
         div { class: "{cls}",
@@ -137,6 +222,7 @@ pub fn Navigator() -> Element {
                     SidebarMode::Airports => rsx! { AirportsPanel {} },
                     SidebarMode::Workspaces => rsx! { WorkspacesPanel {} },
                     SidebarMode::Settings => rsx! { SettingsPanel {} },
+                    SidebarMode::Help => rsx! { HelpPanel {} },
                 }
             }
         }
@@ -152,6 +238,7 @@ fn NavHeader(mode: SidebarMode) -> Element {
         SidebarMode::Airports => tr(lang, "nav.airports"),
         SidebarMode::Workspaces => tr(lang, "nav.workspaces"),
         SidebarMode::Settings => tr(lang, "nav.settings"),
+        SidebarMode::Help => tr(lang, "nav.help"),
     };
 
     rsx! {
@@ -173,29 +260,45 @@ fn AirportsPanel() -> Element {
     let icao = state.read().search_icao.clone();
     let loading = state.read().loading;
     let charts = state.read().charts.clone();
+    let aip_doc = state.read().aip_doc.clone();
     let error = state.read().error.clone();
 
     let airac_memo = use_context::<Memo<crate::airac::AiracCycle>>();
+    let mut last_requested_icao = use_signal(String::new);
+    let mut last_completed_icao = use_signal(String::new);
 
-    let run_search = move |_| {
+    let mut run_search = move |_| {
         let icao = state.read().search_icao.clone();
-        if icao.len() < 4 {
-            return;
-        }
         let airac = airac_memo.read().clone();
-        spawn(async move {
-            state.write().loading = true;
-            state.write().error = None;
-            state.write().charts.clear();
+        trigger_airport_search(
+            &mut state,
+            airac,
+            icao,
+            &mut last_requested_icao,
+            &mut last_completed_icao,
+        );
+    };
 
-            let result = adapters::search_airport(&icao, &airac).await;
-
-            let mut s = state.write();
-            s.charts = result.charts;
-            s.notices = result.notices;
-            s.error = result.errors.into_iter().next(); // Show first error if any
-            s.loading = false;
-        });
+    // Pre-compute workspace membership for eAIP and ATIS (before rsx!)
+    let active_ws_id = state.read().active_workspace_id.clone();
+    let has_active_ws = active_ws_id.is_some();
+    let aip_doc_in_ws = {
+        let s = state.read();
+        active_ws_id.as_deref().and_then(|ws_id| {
+            s.workspaces.iter().find(|w| w.id == ws_id).map(|ws| {
+                aip_doc.as_ref().map(|doc| {
+                    ws.extra_tabs.iter().any(|t| matches!(t, crate::models::ExtraTab::AipDoc { doc: d } if d.id == doc.id))
+                }).unwrap_or(false)
+            })
+        }).unwrap_or(false)
+    };
+    let atis_in_ws = {
+        let s = state.read();
+        active_ws_id.as_deref().and_then(|ws_id| {
+            s.workspaces.iter().find(|w| w.id == ws_id).map(|ws| {
+                ws.extra_tabs.iter().any(|t| matches!(t, crate::models::ExtraTab::Atis { icao: i } if i == &icao))
+            })
+        }).unwrap_or(false)
     };
 
     rsx! {
@@ -207,10 +310,21 @@ fn AirportsPanel() -> Element {
                 maxlength: "4",
                 value: "{icao}",
                 oninput: move |e| {
-                    state.write().search_icao = e.value().to_uppercase();
+                    let icao = e.value().to_uppercase();
+                    state.write().search_icao = icao.clone();
+                    if icao.len() == 4 {
+                        let airac = airac_memo.read().clone();
+                        trigger_airport_search(
+                            &mut state,
+                            airac,
+                            icao,
+                            &mut last_requested_icao,
+                            &mut last_completed_icao,
+                        );
+                    }
                 },
                 onkeydown: {
-                    let run_search = run_search.clone();
+                    let mut run_search = run_search.clone();
                     move |e: KeyboardEvent| {
                         if e.key() == Key::Enter {
                             run_search(());
@@ -238,10 +352,95 @@ fn AirportsPanel() -> Element {
             }
         }
 
-        if !charts.is_empty() {
+        if !loading
+            && error.is_none()
+            && icao.len() == 4
+            && charts.is_empty()
+            && aip_doc.is_none()
+            && last_completed_icao() == icao
+        {
+            div { class: "nav-section-title",
+                "{tr(lang, \"search.no_results\") }"
+            }
+        }
+
+        if !charts.is_empty() || aip_doc.is_some() {
             div { class: "nav-airport-header",
                 span { class: "icao", "{icao}" }
                 " — {charts.len()} {tr(lang, \"search.charts\") }"
+            }
+            if let Some(doc) = aip_doc {
+                div {
+                    class: if aip_doc_in_ws { "tree-item tree-item-in-workspace" } else { "tree-item" },
+                    onclick: {
+                        let doc = doc.clone();
+                        move |_| {
+                            let mut s = state.write();
+                            tab_usecases::open_or_focus_aip(&mut s, doc.clone());
+                        }
+                    },
+                    span { class: "badge", "DOC" }
+                    span { class: "title", "{doc.title()}" }
+                    if has_active_ws && !aip_doc_in_ws {
+                        button {
+                            class: "tree-item-action",
+                            title: "{tr(lang, \"chart.quick_add\")}",
+                            onclick: {
+                                let doc = doc.clone();
+                                move |e: MouseEvent| {
+                                    e.stop_propagation();
+                                    let ws_id = match state.read().active_workspace_id.clone() {
+                                        Some(id) => id,
+                                        None => return,
+                                    };
+                                    add_extra_tab_to_workspace_and_reload(
+                                        &mut state,
+                                        &ws_id,
+                                        crate::models::ExtraTab::AipDoc { doc: doc.clone() },
+                                    );
+                                }
+                            },
+                            "+"
+                        }
+                    }
+                }
+            }
+            // ATIS / METAR / TAF button — always shown when ICAO is known
+            if icao.len() == 4 && !loading {
+                div {
+                    class: if atis_in_ws { "tree-item tree-item-in-workspace" } else { "tree-item" },
+                    onclick: {
+                        let icao = icao.clone();
+                        move |_| {
+                            let mut s = state.write();
+                            tab_usecases::open_or_focus_atis(&mut s, icao.clone());
+                        }
+                    },
+                    span { class: "badge badge-atis", "ATIS" }
+                    span { class: "title", "ATIS / MET — {icao}" }
+                    if has_active_ws && !atis_in_ws {
+                        button {
+                            class: "tree-item-action",
+                            title: "{tr(lang, \"chart.quick_add\")}",
+                            onclick: {
+                                let icao = icao.clone();
+                                move |e: MouseEvent| {
+                                    e.stop_propagation();
+                                    let ws_id = match state.read().active_workspace_id.clone() {
+                                        Some(id) => id,
+                                        None => return,
+                                    };
+                                    add_extra_tab_to_workspace_and_reload(
+                                        &mut state,
+                                        &ws_id,
+                                        crate::models::ExtraTab::Atis { icao: icao.clone() },
+                                    );
+                                }
+                            },
+                            "+"
+                        }
+                    }
+                }
             }
             ChartTree { charts, show_quick_add: state.read().active_workspace_id.is_some() }
         }
@@ -269,7 +468,11 @@ fn ChartTree(charts: Vec<crate::models::Chart>, show_quick_add: bool) -> Element
 }
 
 #[component]
-fn ChartGroup(category: ChartCategory, charts: Vec<crate::models::Chart>, show_quick_add: bool) -> Element {
+fn ChartGroup(
+    category: ChartCategory,
+    charts: Vec<crate::models::Chart>,
+    show_quick_add: bool,
+) -> Element {
     let mut open = use_signal(|| true);
     let label = category.label();
     let count = charts.len();
@@ -310,7 +513,11 @@ fn ChartItem(chart: crate::models::Chart, airport: String, show_quick_add: bool)
             .workspaces
             .iter()
             .find(|w| w.id == ws_id)
-            .map(|ws| ws.chart_refs.iter().any(|wc| wc.chart.id == chart.id && wc.airport == resolved_airport))
+            .map(|ws| {
+                ws.chart_refs
+                    .iter()
+                    .any(|wc| wc.chart.id == chart.id && wc.airport == resolved_airport)
+            })
             .unwrap_or(false)
     } else {
         false
@@ -323,13 +530,8 @@ fn ChartItem(chart: crate::models::Chart, airport: String, show_quick_add: bool)
                 let chart = chart.clone();
                 let airport = resolved_airport.clone();
                 move |_| {
-                    let chart = chart.clone();
                     let mut s = state.write();
-                    if !s.tabs.iter().any(|t| t.id == chart.id) {
-                        s.tabs.push(Tab::chart(chart.clone(), airport.clone()));
-                    }
-                    let idx = s.tabs.iter().position(|t| t.id == chart.id).unwrap();
-                    s.active_tab = Some(idx);
+                    tab_usecases::open_or_focus_chart(&mut s, chart.clone(), airport.clone());
                 }
             },
             span { class: "badge", "{chart.category.label()}" }
@@ -348,14 +550,7 @@ fn ChartItem(chart: crate::models::Chart, airport: String, show_quick_add: bool)
                                 Some(id) => id,
                                 None => return,
                             };
-                            let conn = crate::persistence::db().lock().unwrap();
-                            crate::persistence::workspaces::add_chart_to_workspace(
-                                &conn,
-                                &ws_id,
-                                &airport,
-                                &chart,
-                            );
-                            state.write().workspaces = crate::persistence::workspaces::list_workspaces(&conn);
+                            add_chart_to_workspace_and_reload(&mut state, &ws_id, &airport, &chart);
                         }
                     },
                     "+"
@@ -393,6 +588,7 @@ fn WorkspacesPanel() -> Element {
             chart_refs: Vec::new(),
             open_tabs: Vec::new(),
             active_tab_index: None,
+            extra_tabs: Vec::new(),
             notes: None,
             notes_pinned: Some(false),
             notes_panel_width: Some(380),
@@ -476,11 +672,16 @@ fn WorkspaceItem(workspace: crate::models::Workspace) -> Element {
     let ws_chart_refs = workspace.chart_refs.clone();
 
     // Group charts by airport for display
-    let mut airports_map: std::collections::BTreeMap<String, Vec<crate::models::WorkspaceChart>> = std::collections::BTreeMap::new();
+    let mut airports_map: std::collections::BTreeMap<String, Vec<crate::models::WorkspaceChart>> =
+        std::collections::BTreeMap::new();
     for wc in &workspace.chart_refs {
-        airports_map.entry(wc.airport.clone()).or_default().push(wc.clone());
+        airports_map
+            .entry(wc.airport.clone())
+            .or_default()
+            .push(wc.clone());
     }
-    let airport_groups: Vec<(String, Vec<crate::models::WorkspaceChart>)> = airports_map.into_iter().collect();
+    let airport_groups: Vec<(String, Vec<crate::models::WorkspaceChart>)> =
+        airports_map.into_iter().collect();
 
     rsx! {
         div { class: "tree-group",
@@ -655,9 +856,71 @@ fn WorkspaceItem(workspace: crate::models::Workspace) -> Element {
                         }
                     }
                 }
-                if workspace.chart_refs.is_empty() {
+                if workspace.chart_refs.is_empty() && workspace.extra_tabs.is_empty() {
                     div { class: "tree-item", style: "opacity: 0.5;",
                         "{tr(lang, \"workspace.empty\")}"
+                    }
+                }
+
+                // eAIP and ATIS extra tabs
+                if !workspace.extra_tabs.is_empty() {
+                    div { class: "tree-subgroup",
+                        div { class: "tree-subgroup-header", "📡 ATIS / DOC" }
+                        for et in &workspace.extra_tabs {
+                            {
+                                let ws_id = ws_id.clone();
+                                let et = et.clone();
+                                let (label, badge, badge_class) = match &et {
+                                    crate::models::ExtraTab::Atis { icao } => (
+                                        format!("ATIS / MET — {}", icao),
+                                        "ATIS",
+                                        "badge badge-atis",
+                                    ),
+                                    crate::models::ExtraTab::AipDoc { doc } => (
+                                        doc.title(),
+                                        "DOC",
+                                        "badge",
+                                    ),
+                                };
+                                rsx! {
+                                    div { class: "tree-item-removable",
+                                        div {
+                                            class: "tree-item",
+                                            style: "flex: 1;",
+                                            onclick: {
+                                                let et = et.clone();
+                                                move |_| {
+                                                    let mut s = state.write();
+                                                    match &et {
+                                                        crate::models::ExtraTab::Atis { icao } => {
+                                                            tab_usecases::open_or_focus_atis(&mut s, icao.clone())
+                                                        }
+                                                        crate::models::ExtraTab::AipDoc { doc } => {
+                                                            tab_usecases::open_or_focus_aip(&mut s, doc.clone())
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            span { class: "{badge_class}", "{badge}" }
+                                            span { class: "title", "{label}" }
+                                        }
+                                        button {
+                                            class: "tree-item-remove",
+                                            title: "{tr(lang, \"workspace.remove\")}",
+                                            onclick: {
+                                                let ws_id = ws_id.clone();
+                                                let et = et.clone();
+                                                move |e: MouseEvent| {
+                                                    e.stop_propagation();
+                                                    remove_extra_tab_from_workspace_and_reload(&mut state, &ws_id, et.clone());
+                                                }
+                                            },
+                                            "✕"
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -868,6 +1131,67 @@ fn SettingsPanel() -> Element {
                     }
                 },
                 "{tr(lang, \"settings.theme.auto_system\")}"
+            }
+        }
+        div { class: "tree-item",
+            span { class: "badge", "CACHE" }
+            span { class: "title", "{tr(lang, \"settings.cache\")}" }
+        }
+        div { class: "settings-options-row",
+            button {
+                class: "theme-toggle",
+                onclick: {
+                    let mut state = state.clone();
+                    move |_| {
+                        let conn = crate::persistence::db().lock().unwrap();
+                        crate::persistence::cache::clear_file_caches(&conn);
+                        state.write().pdf_cache.clear();
+                    }
+                },
+                "{tr(lang, \"settings.cache.clear\") }"
+            }
+        }
+    }
+}
+
+#[component]
+fn HelpPanel() -> Element {
+    let state = use_context::<Signal<AppState>>();
+    let lang = state.read().language;
+
+    rsx! {
+        div { class: "help-panel",
+            div { class: "help-section",
+                div { class: "nav-section-title", "{tr(lang, \"help.section.data\")}" }
+                p { class: "help-text", "{tr(lang, \"help.data.intro\")}" }
+                ul { class: "help-list",
+                    li { "{tr(lang, \"help.data.charts\")}" }
+                    li { "{tr(lang, \"help.data.aip\")}" }
+                    li { "{tr(lang, \"help.data.atis\")}" }
+                    li { "{tr(lang, \"help.data.notices\")}" }
+                }
+            }
+
+            div { class: "help-section",
+                div { class: "nav-section-title", "{tr(lang, \"help.section.workspaces\")}" }
+                p { class: "help-text", "{tr(lang, \"help.workspaces.intro\")}" }
+                ul { class: "help-list",
+                    li { "{tr(lang, \"help.workspaces.create\")}" }
+                    li { "{tr(lang, \"help.workspaces.load\")}" }
+                    li { "{tr(lang, \"help.workspaces.add\")}" }
+                    li { "{tr(lang, \"help.workspaces.persist\")}" }
+                }
+            }
+
+            div { class: "help-section",
+                div { class: "nav-section-title", "{tr(lang, \"help.section.view\")}" }
+                p { class: "help-text", "{tr(lang, \"help.view.intro\")}" }
+                ul { class: "help-list",
+                    li { "{tr(lang, \"help.view.tab_actions\")}" }
+                    li { "{tr(lang, \"help.view.zoom\")}" }
+                    li { "{tr(lang, \"help.view.notes\")}" }
+                    li { "{tr(lang, \"help.view.theme\")}" }
+                }
             }
         }
     }

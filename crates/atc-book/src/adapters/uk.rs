@@ -126,17 +126,36 @@ fn detect_uk_category(upper: &str) -> ChartCategory {
 fn extract_uk_tags(upper: &str, rwy_re: &Regex) -> Vec<String> {
     let mut tags = Vec::new();
 
-    if upper.contains("ILS") { tags.push("ILS".to_string()); }
-    if upper.contains("LOC") { tags.push("LOC".to_string()); }
-    if upper.contains("RNP") { tags.push("RNP".to_string()); }
-    if upper.contains("RNAV") { tags.push("RNAV".to_string()); }
-    if upper.contains("VOR") { tags.push("VOR".to_string()); }
-    if upper.contains("NDB") { tags.push("NDB".to_string()); }
-    if upper.contains("DME") { tags.push("DME".to_string()); }
-    if upper.contains("VISUAL") { tags.push("VISUAL".to_string()); }
+    if upper.contains("ILS") {
+        tags.push("ILS".to_string());
+    }
+    if upper.contains("LOC") {
+        tags.push("LOC".to_string());
+    }
+    if upper.contains("RNP") {
+        tags.push("RNP".to_string());
+    }
+    if upper.contains("RNAV") {
+        tags.push("RNAV".to_string());
+    }
+    if upper.contains("VOR") {
+        tags.push("VOR".to_string());
+    }
+    if upper.contains("NDB") {
+        tags.push("NDB".to_string());
+    }
+    if upper.contains("DME") {
+        tags.push("DME".to_string());
+    }
+    if upper.contains("VISUAL") {
+        tags.push("VISUAL".to_string());
+    }
     if upper.contains("CAT II") || upper.contains("CAT III") {
-        if upper.contains("CAT III") { tags.push("CAT III".to_string()); }
-        else { tags.push("CAT II".to_string()); }
+        if upper.contains("CAT III") {
+            tags.push("CAT III".to_string());
+        } else {
+            tags.push("CAT II".to_string());
+        }
     }
 
     for cap in rwy_re.captures_iter(upper) {

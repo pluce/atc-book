@@ -6,13 +6,14 @@ pub mod supaip;
 pub mod uk;
 
 use crate::airac::AiracCycle;
-use crate::models::{Chart, Notice};
+use crate::models::{AipDocSource, AipDocument, Chart, Notice};
 use crate::persistence;
 
 /// Result of a full airport search across all adapters.
 pub struct SearchResult {
     pub charts: Vec<Chart>,
     pub notices: Vec<Notice>,
+    pub aip_doc: Option<AipDocument>,
     pub errors: Vec<String>,
 }
 
@@ -30,6 +31,7 @@ pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
             return SearchResult {
                 charts,
                 notices,
+                aip_doc: build_aip_doc_ref(&icao, airac),
                 errors: Vec::new(),
             };
         }
@@ -96,6 +98,34 @@ pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
     SearchResult {
         charts,
         notices,
+        aip_doc: build_aip_doc_ref(&icao, airac),
         errors,
     }
 }
+
+fn build_aip_doc_ref(icao: &str, airac: &AiracCycle) -> Option<AipDocument> {
+    let icao = icao.to_uppercase();
+    if icao.starts_with("EG") {
+        return Some(AipDocument {
+            id: format!("{}-AIP-UK", icao),
+            icao: icao.clone(),
+            source: AipDocSource::Uk,
+            provider_relative_url: format!("EG-AD-2.{}-en-GB.html", icao),
+            airac_code: airac.code.clone(),
+        });
+    }
+
+    if icao.starts_with('L') {
+        return Some(AipDocument {
+            id: format!("{}-AIP-SIA", icao),
+            icao: icao.clone(),
+            source: AipDocSource::Sia,
+            provider_relative_url: format!("FR-AD-2.{}-fr-FR.html", icao),
+            airac_code: airac.code.clone(),
+        });
+    }
+
+    None
+}
+pub mod atis_guru;
+pub mod workspace_repository_sqlite;

@@ -24,21 +24,31 @@ pub fn NanoSidebar() -> Element {
         div { class: "nano-sidebar",
             SidebarIcon {
                 icon: "✈",
+                icon_class: "icon icon-airport",
                 label: tr(lang, "sidebar.airports"),
                 active: mode == SidebarMode::Airports,
                 onclick: move |_| toggle(SidebarMode::Airports),
             }
             SidebarIcon {
                 icon: "📁",
+                icon_class: "icon",
                 label: tr(lang, "sidebar.workspaces"),
                 active: mode == SidebarMode::Workspaces,
                 onclick: move |_| toggle(SidebarMode::Workspaces),
             }
             SidebarIcon {
                 icon: "⚙",
+                icon_class: "icon icon-settings",
                 label: tr(lang, "sidebar.settings"),
                 active: mode == SidebarMode::Settings,
                 onclick: move |_| toggle(SidebarMode::Settings),
+            }
+            SidebarIcon {
+                icon: "❔",
+                icon_class: "icon",
+                label: tr(lang, "sidebar.help"),
+                active: mode == SidebarMode::Help,
+                onclick: move |_| toggle(SidebarMode::Help),
             }
 
             div { class: "sidebar-info",
@@ -54,13 +64,23 @@ pub fn NanoSidebar() -> Element {
 }
 
 #[component]
-fn SidebarIcon(icon: String, label: String, active: bool, onclick: EventHandler<MouseEvent>) -> Element {
-    let cls = if active { "sidebar-item active" } else { "sidebar-item" };
+fn SidebarIcon(
+    icon: String,
+    icon_class: String,
+    label: String,
+    active: bool,
+    onclick: EventHandler<MouseEvent>,
+) -> Element {
+    let cls = if active {
+        "sidebar-item active"
+    } else {
+        "sidebar-item"
+    };
     rsx! {
         div {
             class: "{cls}",
             onclick: move |e| onclick.call(e),
-            span { class: "icon", "{icon}" }
+            span { class: "{icon_class}", "{icon}" }
             "{label}"
         }
     }

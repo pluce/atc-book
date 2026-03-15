@@ -157,7 +157,10 @@ mod tests {
         println!("sia_cycle_name: {}", cycle.sia_cycle_name());
         println!("sia_airac_date: {}", cycle.sia_airac_date());
         assert_eq!(cycle.code, "2602");
-        assert_eq!(cycle.start_date, NaiveDate::from_ymd_opt(2026, 2, 19).unwrap());
+        assert_eq!(
+            cycle.start_date,
+            NaiveDate::from_ymd_opt(2026, 2, 19).unwrap()
+        );
         assert_eq!(cycle.sia_cycle_name(), "eAIP_19_FEB_2026");
         assert_eq!(cycle.sia_airac_date(), "AIRAC-2026-02-19");
     }

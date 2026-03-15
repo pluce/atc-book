@@ -5,7 +5,7 @@ use chrono::Timelike;
 use dark_light::Mode;
 
 use crate::i18n::AppLanguage;
-use crate::models::{Chart, Notice, Workspace};
+use crate::models::{AipDocument, Chart, Notice, Workspace};
 use crate::pdf::RenderedPage;
 
 /// State of a PDF rendering
@@ -22,6 +22,7 @@ pub enum SidebarMode {
     Airports,
     Workspaces,
     Settings,
+    Help,
 }
 
 /// Theme behavior selected by the user
@@ -38,6 +39,10 @@ pub enum ThemeMode {
 pub enum TabContent {
     /// A PDF chart
     Chart { chart: Chart, airport: String },
+    /// A textual AIP HTML document
+    AipDoc { doc: AipDocument },
+    /// ATIS / METAR / TAF from atis.guru
+    Atis { icao: String },
     /// Workspace notes editor
     Notes,
 }
@@ -69,6 +74,20 @@ impl Tab {
         }
     }
 
+    pub fn aip_doc(doc: AipDocument) -> Self {
+        Self {
+            id: doc.id.clone(),
+            content: TabContent::AipDoc { doc },
+        }
+    }
+
+    pub fn atis(icao: String) -> Self {
+        Self {
+            id: format!("atis_{}", icao),
+            content: TabContent::Atis { icao },
+        }
+    }
+
     /// Whether this is the notes tab
     pub fn is_notes(&self) -> bool {
         matches!(self.content, TabContent::Notes)
@@ -78,7 +97,9 @@ impl Tab {
     pub fn title(&self) -> String {
         match &self.content {
             TabContent::Chart { chart, .. } => chart.display_title().to_string(),
-            TabContent::Notes => "📝 Notes".to_string(),
+            TabContent::AipDoc { doc } => doc.title(),
+            TabContent::Atis { icao } => format!("ATIS {}", icao),
+            TabContent::Notes => "Notes".to_string(),
         }
     }
 
@@ -86,6 +107,8 @@ impl Tab {
     pub fn chart_id(&self) -> Option<&str> {
         match &self.content {
             TabContent::Chart { chart, .. } => Some(&chart.id),
+            TabContent::AipDoc { .. } => None,
+            TabContent::Atis { .. } => None,
             TabContent::Notes => None,
         }
     }
@@ -108,6 +131,8 @@ pub struct AppState {
     pub charts: Vec<Chart>,
     /// Notices from last search
     pub notices: Vec<Notice>,
+    /// Airport AIP textual document from SIA/NATS
+    pub aip_doc: Option<AipDocument>,
     /// Open tabs in the workspace
     pub tabs: Vec<Tab>,
     /// Index of the active tab
@@ -191,6 +216,7 @@ impl Default for AppState {
             error: None,
             charts: Vec::new(),
             notices: Vec::new(),
+            aip_doc: None,
             tabs: Vec::new(),
             active_tab: None,
             workspaces: Vec::new(),
