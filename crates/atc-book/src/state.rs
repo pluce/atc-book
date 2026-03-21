@@ -12,6 +12,7 @@ use crate::pdf::RenderedPage;
 #[derive(Debug, Clone, PartialEq)]
 pub enum PdfState {
     Loading,
+    Partial(Vec<RenderedPage>),
     Rendered(Vec<RenderedPage>),
     Error(String),
 }

@@ -21,6 +21,7 @@ pub struct SearchResult {
 /// Returns cached results when available for the current AIRAC cycle.
 pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
     let icao = icao.to_uppercase();
+    println!("[search] start icao={} airac={}", icao, airac.code);
 
     // Try cache first
     {
@@ -28,6 +29,18 @@ pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
         if let Some((charts, notices)) =
             persistence::cache::get_cached_search(&conn, &icao, &airac.code)
         {
+            let linked_total: usize = charts
+                .iter()
+                .map(|c| c.linked_provider_relative_urls.len())
+                .sum();
+            println!(
+                "[search] cache hit icao={} airac={} charts={} linked_total={} notices={}",
+                icao,
+                airac.code,
+                charts.len(),
+                linked_total,
+                notices.len()
+            );
             return SearchResult {
                 charts,
                 notices,
@@ -36,6 +49,7 @@ pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
             };
         }
     }
+    println!("[search] cache miss icao={} airac={}", icao, airac.code);
 
     // Cache miss — fetch from adapters
     let mut charts = Vec::new();
@@ -66,12 +80,22 @@ pub async fn search_airport(icao: &str, airac: &AiracCycle) -> SearchResult {
         }
     }
 
-    // Filter out INSTR charts
-    charts.retain(|c| !sia::INSTR_RE.is_match(&c.filename));
-
     // Deduplicate by effective URL for the requested AIRAC.
     charts.sort_by(|a, b| a.url_for_airac(airac).cmp(&b.url_for_airac(airac)));
     charts.dedup_by(|a, b| a.url_for_airac(airac) == b.url_for_airac(airac));
+
+    let linked_total: usize = charts
+        .iter()
+        .map(|c| c.linked_provider_relative_urls.len())
+        .sum();
+    println!(
+        "[search] fetched icao={} airac={} charts={} linked_total={} errors={}",
+        icao,
+        airac.code,
+        charts.len(),
+        linked_total,
+        errors.len()
+    );
 
     // Sort by category then subtitle
     charts.sort_by(|a, b| {

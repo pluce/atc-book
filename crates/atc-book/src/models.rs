@@ -75,6 +75,9 @@ pub struct Chart {
     pub filename: String,
     /// Provider-relative path used to rebuild a valid URL for any AIRAC cycle.
     pub provider_relative_url: String,
+    /// Additional provider-relative PDFs linked to this chart (e.g. SIA INSTR_XX).
+    #[serde(default)]
+    pub linked_provider_relative_urls: Vec<String>,
     /// AIRAC code associated with this chart when it was discovered (ex: 2603).
     pub airac_code: String,
     pub page: Option<String>,
@@ -113,22 +116,36 @@ impl Chart {
         }
     }
 
-    /// Resolve the effective URL for a target AIRAC cycle.
-    pub fn url_for_airac(&self, airac: &AiracCycle) -> String {
-        if self.provider_relative_url.starts_with("http://")
-            || self.provider_relative_url.starts_with("https://")
+    fn resolve_relative_for_airac(&self, provider_relative_url: &str, airac: &AiracCycle) -> String {
+        if provider_relative_url.starts_with("http://")
+            || provider_relative_url.starts_with("https://")
         {
-            return self.provider_relative_url.clone();
+            return provider_relative_url.to_string();
         }
 
         let base = self.provider_base_for_airac(airac);
-        let rel = self.provider_relative_url.trim_start_matches('/');
+        let rel = provider_relative_url.trim_start_matches('/');
         format!("{}/{}", base.trim_end_matches('/'), rel)
     }
 
-    /// Resolve URL using the current AIRAC cycle.
-    pub fn runtime_url(&self) -> String {
-        self.url_for_airac(&AiracCycle::current())
+    /// Resolve the effective URL for a target AIRAC cycle.
+    pub fn url_for_airac(&self, airac: &AiracCycle) -> String {
+        self.resolve_relative_for_airac(&self.provider_relative_url, airac)
+    }
+
+    /// Resolve all linked URLs for a target AIRAC cycle.
+    /// The first URL is always the main chart PDF.
+    pub fn urls_for_airac(&self, airac: &AiracCycle) -> Vec<String> {
+        let mut urls = Vec::with_capacity(1 + self.linked_provider_relative_urls.len());
+        urls.push(self.resolve_relative_for_airac(&self.provider_relative_url, airac));
+        for linked in &self.linked_provider_relative_urls {
+            urls.push(self.resolve_relative_for_airac(linked, airac));
+        }
+        urls
+    }
+
+    pub fn runtime_urls(&self) -> Vec<String> {
+        self.urls_for_airac(&AiracCycle::current())
     }
 }
 

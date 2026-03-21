@@ -507,6 +507,7 @@ mod tests {
             subtitle: "ADC".into(),
             filename: "test.pdf".into(),
             provider_relative_url: format!("charts/{id}.pdf"),
+            linked_provider_relative_urls: vec![],
             airac_code: "2602".into(),
             page: None,
             tags: vec![],

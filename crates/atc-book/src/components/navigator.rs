@@ -716,14 +716,23 @@ fn WorkspaceItem(workspace: crate::models::Workspace) -> Element {
 
                             // If just loaded, warm caches and restore linked popout.
                             if state.read().active_workspace_id.as_deref() == Some(&ws_id) {
+                                let fresh_charts = state.read().charts.clone();
                                 let preload_urls: Vec<String> = chart_refs
                                     .iter()
-                                    .map(|wc| wc.chart.runtime_url())
+                                    .flat_map(|wc| {
+                                        fresh_charts
+                                            .iter()
+                                            .find(|c| {
+                                                c.source == wc.chart.source
+                                                    && c.provider_relative_url
+                                                        == wc.chart.provider_relative_url
+                                            })
+                                            .map(|c| c.runtime_urls())
+                                            .unwrap_or_else(|| wc.chart.runtime_urls())
+                                    })
                                     .collect();
                                 spawn(async move {
-                                    for url in preload_urls {
-                                        let _ = crate::pdf::pre_render_pdf(&url).await;
-                                    }
+                                    let _ = crate::pdf::pre_render_pdf_many(&preload_urls).await;
                                 });
 
                                 let conn = crate::persistence::db().lock().unwrap();

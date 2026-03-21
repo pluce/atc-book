@@ -14,8 +14,16 @@ static CAT_ILS_RE: LazyLock<Regex> =
 static CATEGORY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"_(ADC|APDC|GMC|SID|STAR|IAC|VAC|VLC|TEM)_").unwrap());
 static RWY_STRIP_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"_?RWY_\w+").unwrap());
-pub(crate) static INSTR_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)_INSTR_\d{2}\.pdf$").unwrap());
+static RWY_GROUP_RE: LazyLock<Regex> =
+    LazyLock::new(|| {
+        Regex::new(r"(?i)_RWY_?(?:ALL|\d{2}[LRC]?)(?:-(?:ALL|\d{2}[LRC]?))*").unwrap()
+    });
+static STEM_RWY_PARTS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^(?P<prefix>.+)_RWY_?(?P<group>(?:ALL|\d{2}[LRC]?)(?:-(?:ALL|\d{2}[LRC]?))*)_(?P<suffix>.+)$")
+        .unwrap()
+});
+static INSTR_FILE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(?P<base>.+)_INSTR_(?P<page>\d{2})\.pdf$").unwrap());
 
 /// Base URL for SIA eAIP.
 fn eaip_base_url(airac: &AiracCycle) -> String {
@@ -46,21 +54,39 @@ pub async fn fetch_charts(icao: &str, airac: &AiracCycle) -> Result<Vec<Chart>, 
         .await
         .map_err(|e| format!("Request failed: {e}"))?;
 
+    println!(
+        "[sia] fetch_charts icao={} airac={} url={} status={}",
+        icao.to_uppercase(),
+        airac.code,
+        url,
+        resp.status()
+    );
+
     if !resp.status().is_success() {
         return Err(format!("HTTP {}", resp.status()));
     }
 
     let html = resp.text().await.map_err(|e| format!("Read error: {e}"))?;
     let charts = parse_sia_html(&html, icao, &airac.code);
+    println!(
+        "[sia] parse result icao={} airac={} charts={}",
+        icao.to_uppercase(),
+        airac.code,
+        charts.len()
+    );
     Ok(charts)
 }
 
 /// Parse the SIA HTML page and extract PDF chart links.
 pub(crate) fn parse_sia_html(html: &str, icao: &str, airac_code: &str) -> Vec<Chart> {
+    use std::collections::HashMap;
+
     let doc = Html::parse_document(html);
     let a_sel = Selector::parse("a[href]").unwrap();
 
     let mut raw_charts: Vec<RawChart> = Vec::new();
+    let mut instr_by_parent: HashMap<String, Vec<InstrDoc>> = HashMap::new();
+    let mut instr_detected = 0usize;
 
     for elem in doc.select(&a_sel) {
         let href = match elem.value().attr("href") {
@@ -87,16 +113,104 @@ pub(crate) fn parse_sia_html(html: &str, icao: &str, airac_code: &str) -> Vec<Ch
             href.trim_start_matches("./").to_string()
         };
 
+        if let Some((parent_stem, page_index)) = parse_instr_parent(filename) {
+            instr_detected += 1;
+            println!(
+                "[sia] instr detected icao={} file={} parent={} page={}",
+                icao.to_uppercase(),
+                filename,
+                parent_stem,
+                page_index
+            );
+            instr_by_parent
+                .entry(parent_stem)
+                .or_default()
+                .push(InstrDoc {
+                    page_index,
+                    provider_relative_url,
+                });
+            continue;
+        }
+
         raw_charts.push(RawChart {
             category,
             subtitle,
             filename: filename.to_string(),
             provider_relative_url,
+            linked_provider_relative_urls: Vec::new(),
             airac_code: airac_code.to_string(),
             tags,
             runways,
         });
     }
+
+    for chart in raw_charts.iter_mut() {
+        let stem = filename_stem_upper(&chart.filename);
+        let canonical_stem = strip_numeric_suffix(&stem);
+
+        let mut linked: Vec<InstrDoc> = instr_by_parent.remove(&stem).unwrap_or_default();
+
+        if linked.is_empty() {
+            linked = instr_by_parent
+                .remove(&canonical_stem)
+                .unwrap_or_default();
+        }
+
+        if linked.is_empty() {
+            let matching_keys: Vec<String> = instr_by_parent
+                .keys()
+                .filter(|key| {
+                    let key_canonical = strip_numeric_suffix(key.as_str());
+                    stems_match_for_instr_link(&canonical_stem, &key_canonical)
+                })
+                .cloned()
+                .collect();
+
+            for key in matching_keys {
+                if let Some(mut docs) = instr_by_parent.remove(&key) {
+                    linked.append(&mut docs);
+                }
+            }
+        }
+
+        linked.sort_by_key(|doc| doc.page_index);
+        chart.linked_provider_relative_urls = linked
+            .into_iter()
+            .map(|doc| doc.provider_relative_url)
+            .collect();
+
+        if !chart.linked_provider_relative_urls.is_empty() {
+            println!(
+                "[sia] instr linked icao={} chart={} linked_count={} linked={:?}",
+                icao.to_uppercase(),
+                chart.filename,
+                chart.linked_provider_relative_urls.len(),
+                chart.linked_provider_relative_urls
+            );
+        }
+    }
+
+    let mut unlinked_instr = 0usize;
+    for docs in instr_by_parent.values() {
+        unlinked_instr += docs.len();
+    }
+    if unlinked_instr > 0 {
+        let keys: Vec<String> = instr_by_parent.keys().cloned().collect();
+        println!(
+            "[sia] instr unlinked icao={} count={} parent_keys={:?}",
+            icao.to_uppercase(),
+            unlinked_instr,
+            keys
+        );
+    }
+    println!(
+        "[sia] summary icao={} airac={} raw_charts={} instr_detected={} instr_unlinked={}",
+        icao.to_uppercase(),
+        airac_code,
+        raw_charts.len(),
+        instr_detected,
+        unlinked_instr
+    );
 
     // Pagination: group by (category, subtitle), assign page numbers
     paginate(raw_charts, icao)
@@ -107,9 +221,90 @@ struct RawChart {
     subtitle: String,
     filename: String,
     provider_relative_url: String,
+    linked_provider_relative_urls: Vec<String>,
     airac_code: String,
     tags: Vec<String>,
     runways: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct InstrDoc {
+    page_index: u32,
+    provider_relative_url: String,
+}
+
+fn parse_instr_parent(filename: &str) -> Option<(String, u32)> {
+    let cap = INSTR_FILE_RE.captures(filename)?;
+    let base = cap.name("base")?.as_str().to_uppercase();
+    let page_index = cap
+        .name("page")
+        .and_then(|m| m.as_str().parse::<u32>().ok())
+        .unwrap_or(0);
+    Some((base, page_index))
+}
+
+fn filename_stem_upper(filename: &str) -> String {
+    filename
+        .trim_end_matches(".pdf")
+        .trim_end_matches(".PDF")
+        .to_uppercase()
+}
+
+fn strip_numeric_suffix(stem: &str) -> String {
+    static NUM_SUFFIX_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"^(?P<base>.+)_\d{2}$").unwrap());
+    NUM_SUFFIX_RE
+        .captures(stem)
+        .and_then(|c| c.name("base").map(|m| m.as_str().to_string()))
+        .unwrap_or_else(|| stem.to_string())
+}
+
+fn normalize_stem_for_instr_match(stem: &str) -> String {
+    RWY_GROUP_RE.replace(stem, "_RWY").to_string()
+}
+
+fn parse_stem_runway_parts(stem: &str) -> Option<(String, Vec<String>, String)> {
+    let cap = STEM_RWY_PARTS_RE.captures(stem)?;
+    let prefix = cap.name("prefix")?.as_str().to_string();
+    let suffix = cap.name("suffix")?.as_str().to_string();
+    let runways = cap
+        .name("group")?
+        .as_str()
+        .split('-')
+        .map(|s| s.to_uppercase())
+        .collect::<Vec<_>>();
+    Some((prefix, runways, suffix))
+}
+
+fn stems_match_for_instr_link(chart_stem: &str, instr_parent_stem: &str) -> bool {
+    if chart_stem == instr_parent_stem {
+        return true;
+    }
+
+    let chart_norm = normalize_stem_for_instr_match(chart_stem);
+    let instr_norm = normalize_stem_for_instr_match(instr_parent_stem);
+    if chart_norm != instr_norm {
+        return false;
+    }
+
+    let Some((chart_prefix, chart_runways, chart_suffix)) = parse_stem_runway_parts(chart_stem) else {
+        return false;
+    };
+    let Some((instr_prefix, instr_runways, instr_suffix)) = parse_stem_runway_parts(instr_parent_stem) else {
+        return false;
+    };
+
+    if chart_prefix != instr_prefix || chart_suffix != instr_suffix {
+        return false;
+    }
+
+    if chart_runways.iter().any(|r| r == "ALL") {
+        return true;
+    }
+
+    chart_runways
+        .iter()
+        .any(|rwy| instr_runways.iter().any(|k| k == rwy))
 }
 
 /// Detect chart category from filename patterns.
@@ -261,6 +456,7 @@ fn paginate(raw: Vec<RawChart>, icao: &str) -> Vec<Chart> {
             subtitle: rc.subtitle.clone(),
             filename: rc.filename.clone(),
             provider_relative_url: rc.provider_relative_url.clone(),
+            linked_provider_relative_urls: rc.linked_provider_relative_urls.clone(),
             airac_code: rc.airac_code.clone(),
             page,
             tags: rc.tags.clone(),
@@ -337,8 +533,8 @@ mod tests {
 
     #[test]
     fn test_instr_filter() {
-        assert!(INSTR_RE.is_match("AD_2_LFPG_INSTR_01.pdf"));
-        assert!(!INSTR_RE.is_match("AD_2_LFPG_IAC_01.pdf"));
+        assert!(INSTR_FILE_RE.is_match("AD_2_LFPG_INSTR_01.pdf"));
+        assert!(!INSTR_FILE_RE.is_match("AD_2_LFPG_IAC_01.pdf"));
     }
 
     #[test]
@@ -387,5 +583,114 @@ mod tests {
         assert_eq!(charts.len(), 2);
         assert_eq!(charts[0].page, None);
         assert_eq!(charts[1].page, None);
+    }
+
+    #[test]
+    fn test_instr_attached_when_main_has_no_numeric_suffix() {
+        let html = r#"
+            <html><body>
+                <a href="./AD_2_LFXX_IAC_RWY_27L.pdf">Main</a>
+                <a href="./AD_2_LFXX_IAC_RWY_27L_01_INSTR_01.pdf">Instr 1</a>
+                <a href="./AD_2_LFXX_IAC_RWY_27L_01_INSTR_02.pdf">Instr 2</a>
+            </body></html>
+        "#;
+
+        let charts = parse_sia_html(html, "LFXX", "2602");
+        assert_eq!(charts.len(), 1);
+        assert_eq!(charts[0].filename, "AD_2_LFXX_IAC_RWY_27L.pdf");
+        assert_eq!(charts[0].linked_provider_relative_urls.len(), 2);
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[0],
+            "AD_2_LFXX_IAC_RWY_27L_01_INSTR_01.pdf"
+        );
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[1],
+            "AD_2_LFXX_IAC_RWY_27L_01_INSTR_02.pdf"
+        );
+    }
+
+    #[test]
+    fn test_instr_attached_when_main_has_numeric_suffix() {
+        let html = r#"
+            <html><body>
+                <a href="./AD_2_LFYY_IAC_RWY_09_01.pdf">Main</a>
+                <a href="./AD_2_LFYY_IAC_RWY_09_INSTR_01.pdf">Instr 1</a>
+            </body></html>
+        "#;
+
+        let charts = parse_sia_html(html, "LFYY", "2602");
+        assert_eq!(charts.len(), 1);
+        assert_eq!(charts[0].filename, "AD_2_LFYY_IAC_RWY_09_01.pdf");
+        assert_eq!(charts[0].linked_provider_relative_urls.len(), 1);
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[0],
+            "AD_2_LFYY_IAC_RWY_09_INSTR_01.pdf"
+        );
+    }
+
+    #[test]
+    fn test_instr_attached_for_combined_runway_chart() {
+        let html = r#"
+            <html><body>
+                <a href="./AD_2_LFPO_SID_RWY06-07_RNAV_SOUTH.pdf">Main</a>
+                <a href="./AD_2_LFPO_SID_RWY06_RNAV_SOUTH_INSTR_01.pdf">Instr 06</a>
+                <a href="./AD_2_LFPO_SID_RWY07_RNAV_SOUTH_INSTR_02.pdf">Instr 07</a>
+            </body></html>
+        "#;
+
+        let charts = parse_sia_html(html, "LFPO", "2602");
+        assert_eq!(charts.len(), 1);
+        assert_eq!(charts[0].linked_provider_relative_urls.len(), 2);
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[0],
+            "AD_2_LFPO_SID_RWY06_RNAV_SOUTH_INSTR_01.pdf"
+        );
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[1],
+            "AD_2_LFPO_SID_RWY07_RNAV_SOUTH_INSTR_02.pdf"
+        );
+    }
+
+    #[test]
+    fn test_instr_not_attached_from_unrelated_runway_group() {
+        let html = r#"
+            <html><body>
+                <a href="./AD_2_LFPO_SID_RWY06-07_RNAV_SOUTH.pdf">Main</a>
+                <a href="./AD_2_LFPO_SID_RWY06_RNAV_SOUTH_INSTR_01.pdf">Instr 06</a>
+                <a href="./AD_2_LFPO_SID_RWY25_RNAV_SOUTH_INSTR_01.pdf">Instr 25</a>
+            </body></html>
+        "#;
+
+        let charts = parse_sia_html(html, "LFPO", "2602");
+        assert_eq!(charts.len(), 1);
+        assert_eq!(charts[0].linked_provider_relative_urls.len(), 1);
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[0],
+            "AD_2_LFPO_SID_RWY06_RNAV_SOUTH_INSTR_01.pdf"
+        );
+    }
+
+    #[test]
+    fn test_instr_attached_to_sid_all() {
+        let html = r#"
+            <html><body>
+                <a href="./AD_2_LFBL_SID_RWY_ALL_RNAV.pdf">SID ALL</a>
+                <a href="./AD_2_LFBL_SID_RWY03_RNAV_INSTR_01.pdf">INSTR 03</a>
+                <a href="./AD_2_LFBL_SID_RWY21_RNAV_INSTR_01.pdf">INSTR 21</a>
+            </body></html>
+        "#;
+
+        let charts = parse_sia_html(html, "LFBL", "2602");
+        assert_eq!(charts.len(), 1);
+        assert_eq!(charts[0].filename, "AD_2_LFBL_SID_RWY_ALL_RNAV.pdf");
+        assert_eq!(charts[0].linked_provider_relative_urls.len(), 2);
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[0],
+            "AD_2_LFBL_SID_RWY03_RNAV_INSTR_01.pdf"
+        );
+        assert_eq!(
+            charts[0].linked_provider_relative_urls[1],
+            "AD_2_LFBL_SID_RWY21_RNAV_INSTR_01.pdf"
+        );
     }
 }

@@ -2,6 +2,10 @@ use rusqlite::{params, Connection};
 
 use crate::models::{Chart, Notice};
 
+// Entries fetched before this timestamp may contain charts parsed before
+// SIA INSTR linking support was fixed.
+const LINKED_PDF_FIX_ROLLOUT_AT: &str = "2026-03-17T00:00:00Z";
+
 /// Retrieve cached search results for the given ICAO + AIRAC cycle.
 /// Returns `None` if no cache entry exists.
 pub fn get_cached_search(
@@ -11,16 +15,35 @@ pub fn get_cached_search(
 ) -> Option<(Vec<Chart>, Vec<Notice>)> {
     let mut stmt = conn
         .prepare(
-            "SELECT charts_json, notices_json FROM chart_cache WHERE icao = ?1 AND airac_code = ?2",
+            "SELECT charts_json, notices_json, fetched_at FROM chart_cache WHERE icao = ?1 AND airac_code = ?2",
         )
         .ok()?;
     stmt.query_row(params![icao, airac_code], |row| {
         let charts_json: String = row.get(0)?;
         let notices_json: String = row.get(1)?;
-        Ok((charts_json, notices_json))
+        let fetched_at: String = row.get(2)?;
+        Ok((charts_json, notices_json, fetched_at))
     })
     .ok()
-    .and_then(|(cj, nj)| {
+    .and_then(|(cj, nj, fetched_at)| {
+        if fetched_at.as_str() < LINKED_PDF_FIX_ROLLOUT_AT {
+            let _ = conn.execute(
+                "DELETE FROM chart_cache WHERE icao = ?1 AND airac_code = ?2",
+                params![icao, airac_code],
+            );
+            return None;
+        }
+
+        // Backward compatibility: entries cached before linked chart PDFs support
+        // do not contain this field and must be refreshed from network.
+        if !cj.contains("\"linked_provider_relative_urls\"") {
+            let _ = conn.execute(
+                "DELETE FROM chart_cache WHERE icao = ?1 AND airac_code = ?2",
+                params![icao, airac_code],
+            );
+            return None;
+        }
+
         let charts: Vec<Chart> = serde_json::from_str(&cj).ok()?;
         let notices: Vec<Notice> = serde_json::from_str(&nj).ok()?;
         Some((charts, notices))
@@ -182,6 +205,7 @@ pub fn clear_file_caches(conn: &Connection) {
     let _ = conn.execute("DELETE FROM pdf_cache", []);
     let _ = conn.execute("DELETE FROM rendered_pdf_cache", []);
     let _ = conn.execute("DELETE FROM html_doc_cache", []);
+    let _ = conn.execute("DELETE FROM chart_cache", []);
 }
 
 #[cfg(test)]
@@ -200,6 +224,7 @@ mod tests {
             subtitle: "ADC".into(),
             filename: "test.pdf".into(),
             provider_relative_url: "charts/test.pdf".into(),
+            linked_provider_relative_urls: vec![],
             airac_code: "2602".into(),
             page: None,
             tags: vec!["ILS".into()],

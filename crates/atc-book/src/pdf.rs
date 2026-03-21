@@ -1,11 +1,13 @@
 use base64::Engine;
 use image::ImageEncoder;
 use pdfium_render::prelude::*;
+use std::sync::OnceLock;
+use std::time::Instant;
 
 /// Render width in pixels (2x base for crisp zoom at 200%)
-const RENDER_WIDTH: i32 = 2400;
+const RENDER_WIDTH: i32 = 1200;
 /// Maximum render height in pixels
-const RENDER_MAX_HEIGHT: i32 = 3400;
+const RENDER_MAX_HEIGHT: i32 = 1900;
 /// Max number of rendered PNG pages to keep on disk
 const MAX_RENDERED_PAGES: usize = 200;
 
@@ -20,20 +22,35 @@ pub struct RenderedPage {
 
 /// Download a PDF from a URL and render all pages as PNG data URLs.
 /// Uses the local file cache to avoid re-downloading.
+#[allow(dead_code)]
 pub async fn fetch_and_render(url: &str) -> Result<Vec<RenderedPage>, String> {
+    let started = Instant::now();
     // Try rendered PNG cache first
     if let Some(pages) = load_rendered_cache(url)? {
+        println!(
+            "[pdf] render cache hit url={} pages={} elapsed_ms={}",
+            url,
+            pages.len(),
+            started.elapsed().as_millis()
+        );
         return Ok(pages);
     }
 
     let bytes = fetch_pdf_bytes(url).await?;
 
     let (tx, rx) = async_channel::bounded::<Result<Vec<RenderedPage>, String>>(1);
-    let url = url.to_string();
+    let url_for_render = url.to_string();
     std::thread::spawn(move || {
-        let _ = tx.send_blocking(render_pdf_bytes_with_cache(&url, &bytes));
+        let _ = tx.send_blocking(render_pdf_bytes_with_cache(&url_for_render, &bytes));
     });
-    rx.recv().await.map_err(|e| format!("Channel: {e}"))?
+    let pages = rx.recv().await.map_err(|e| format!("Channel: {e}"))??;
+    println!(
+        "[pdf] render done url={} pages={} elapsed_ms={}",
+        url,
+        pages.len(),
+        started.elapsed().as_millis()
+    );
+    Ok(pages)
 }
 
 /// Pre-render a PDF into the rendered PNG cache.
@@ -51,6 +68,188 @@ pub async fn pre_render_pdf(url: &str) -> Result<(), String> {
     rx.recv().await.map_err(|e| format!("Channel: {e}"))?
 }
 
+/// Download and render multiple PDFs as a single ordered document.
+/// URLs are rendered in order and concatenated: main chart first, then linked docs.
+pub async fn fetch_and_render_many(urls: &[String]) -> Result<Vec<RenderedPage>, String> {
+    if urls.is_empty() {
+        return Err("No PDF URL provided".to_string());
+    }
+
+    println!("[pdf] aggregate render start docs={} urls={:?}", urls.len(), urls);
+
+    // Keep one slot per URL to preserve final ordering.
+    let mut by_doc: Vec<Option<Vec<RenderedPage>>> = vec![None; urls.len()];
+    let mut to_render: Vec<(usize, String, Vec<u8>)> = Vec::new();
+
+    for (doc_idx, url) in urls.iter().enumerate() {
+        if let Some(pages) = load_rendered_cache(url)? {
+            println!(
+                "[pdf] aggregate render doc={} url={} pages={} cache=rendered",
+                doc_idx,
+                url,
+                pages.len()
+            );
+            by_doc[doc_idx] = Some(pages);
+            continue;
+        }
+
+        let bytes = fetch_pdf_bytes(url).await?;
+        to_render.push((doc_idx, url.clone(), bytes));
+    }
+
+    if !to_render.is_empty() {
+        let (tx, rx) = async_channel::bounded::<Result<Vec<(usize, Vec<RenderedPage>)>, String>>(1);
+        std::thread::spawn(move || {
+            let mut out = Vec::with_capacity(to_render.len());
+            for (doc_idx, url, bytes) in to_render {
+                let started = Instant::now();
+                match render_pdf_bytes_with_cache(&url, &bytes) {
+                    Ok(pages) => {
+                        println!(
+                            "[pdf] render done url={} pages={} elapsed_ms={}",
+                            url,
+                            pages.len(),
+                            started.elapsed().as_millis()
+                        );
+                        out.push((doc_idx, pages));
+                    }
+                    Err(e) => {
+                        let _ = tx.send_blocking(Err(e));
+                        return;
+                    }
+                }
+            }
+            let _ = tx.send_blocking(Ok(out));
+        });
+
+        for (doc_idx, pages) in rx.recv().await.map_err(|e| format!("Channel: {e}"))?? {
+            by_doc[doc_idx] = Some(pages);
+        }
+    }
+
+    let mut merged = Vec::new();
+    for (doc_idx, url) in urls.iter().enumerate() {
+        let mut pages = by_doc[doc_idx]
+            .take()
+            .ok_or_else(|| format!("Missing rendered pages for doc {doc_idx}: {url}"))?;
+        println!(
+            "[pdf] aggregate render doc={} url={} pages={}",
+            doc_idx,
+            url,
+            pages.len()
+        );
+        merged.append(&mut pages);
+    }
+
+    for (index, page) in merged.iter_mut().enumerate() {
+        page.index = index;
+    }
+
+    println!("[pdf] aggregate render done total_pages={}", merged.len());
+
+    Ok(merged)
+}
+
+/// Download and render only the first page of each PDF, preserving document order.
+/// Useful to display content quickly while the full render continues in background.
+#[allow(dead_code)]
+pub async fn fetch_and_render_many_first_pages(urls: &[String]) -> Result<Vec<RenderedPage>, String> {
+    if urls.is_empty() {
+        return Err("No PDF URL provided".to_string());
+    }
+
+    println!(
+        "[pdf] aggregate first-page render start docs={} urls={:?}",
+        urls.len(),
+        urls
+    );
+
+    let mut out = Vec::with_capacity(urls.len());
+    for (doc_idx, url) in urls.iter().enumerate() {
+        if let Some(mut pages) = load_rendered_cache(url)? {
+            if let Some(mut first) = pages.drain(..).next() {
+                first.index = out.len();
+                println!(
+                    "[pdf] aggregate first-page doc={} url={} cache=rendered",
+                    doc_idx, url
+                );
+                out.push(first);
+                continue;
+            }
+        }
+
+        let bytes = fetch_pdf_bytes(url).await?;
+        let (tx, rx) = async_channel::bounded::<Result<RenderedPage, String>>(1);
+        let url_for_render = url.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send_blocking(render_first_page_with_cache(&url_for_render, &bytes));
+        });
+
+        let mut first = rx.recv().await.map_err(|e| format!("Channel: {e}"))??;
+        first.index = out.len();
+        println!(
+            "[pdf] aggregate first-page doc={} url={} rendered=1",
+            doc_idx, url
+        );
+        out.push(first);
+    }
+
+    println!(
+        "[pdf] aggregate first-page render done pages={}",
+        out.len()
+    );
+    Ok(out)
+}
+
+/// Download and render only the first page of a single PDF.
+/// Useful for progressive display: show content quickly before full render completes.
+pub async fn fetch_and_render_first_page(url: &str) -> Result<RenderedPage, String> {
+    let started = Instant::now();
+
+    if let Some(mut pages) = load_rendered_cache(url)? {
+        if let Some(mut first) = pages.drain(..).next() {
+            first.index = 0;
+            println!(
+                "[pdf] first-page cache hit url={} elapsed_ms={}",
+                url,
+                started.elapsed().as_millis()
+            );
+            return Ok(first);
+        }
+    }
+
+    let bytes = fetch_pdf_bytes(url).await?;
+    let (tx, rx) = async_channel::bounded::<Result<RenderedPage, String>>(1);
+    let url_for_render = url.to_string();
+    std::thread::spawn(move || {
+        let _ = tx.send_blocking(render_first_page_with_cache(&url_for_render, &bytes));
+    });
+
+    let page = rx.recv().await.map_err(|e| format!("Channel: {e}"))??;
+    println!(
+        "[pdf] first-page rendered url={} elapsed_ms={}",
+        url,
+        started.elapsed().as_millis()
+    );
+    Ok(page)
+}
+
+/// Pre-render multiple PDFs in order.
+pub async fn pre_render_pdf_many(urls: &[String]) -> Result<(), String> {
+    if urls.is_empty() {
+        return Ok(());
+    }
+
+    println!("[pdf] aggregate prerender start docs={} urls={:?}", urls.len(), urls);
+
+    for (doc_idx, url) in urls.iter().enumerate() {
+        println!("[pdf] aggregate prerender doc={} url={}", doc_idx, url);
+        pre_render_pdf(url).await?;
+    }
+    println!("[pdf] aggregate prerender done docs={}", urls.len());
+    Ok(())
+}
+
 /// Preload a PDF into local cache for offline use, without rendering pages.
 #[allow(dead_code)]
 pub async fn prefetch_pdf(url: &str) -> Result<(), String> {
@@ -60,6 +259,7 @@ pub async fn prefetch_pdf(url: &str) -> Result<(), String> {
 
 /// Fetch PDF bytes, checking the local disk cache first.
 async fn fetch_pdf_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let started = Instant::now();
     // 1. Try local cache
     let cached_path = {
         let conn = crate::persistence::db().lock().unwrap();
@@ -67,12 +267,20 @@ async fn fetch_pdf_bytes(url: &str) -> Result<Vec<u8>, String> {
     };
     if let Some(path) = cached_path {
         if let Ok(bytes) = std::fs::read(&path) {
+            println!(
+                "[pdf] bytes cache hit url={} size={} elapsed_ms={}",
+                url,
+                bytes.len(),
+                started.elapsed().as_millis()
+            );
             return Ok(bytes);
         }
     }
 
     // 2. Download
-    let bytes = reqwest::get(url)
+    let bytes = http_client()
+        .get(url)
+        .send()
         .await
         .map_err(|e| format!("Réseau: {e}"))?
         .error_for_status()
@@ -101,6 +309,13 @@ async fn fetch_pdf_bytes(url: &str) -> Result<Vec<u8>, String> {
             bytes.len() as u64,
         );
     }
+
+    println!(
+        "[pdf] bytes downloaded url={} size={} elapsed_ms={}",
+        url,
+        bytes.len(),
+        started.elapsed().as_millis()
+    );
 
     Ok(bytes.to_vec())
 }
@@ -147,6 +362,39 @@ pub(crate) fn render_pdf_bytes(pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, St
 
 fn render_pdf_bytes_with_cache(url: &str, pdf_bytes: &[u8]) -> Result<Vec<RenderedPage>, String> {
     let pdfium = pdfium_auto::bind_bundled().map_err(|e| format!("PDFium init: {e}"))?;
+
+    render_pdf_bytes_with_cache_for_pdfium(&pdfium, url, pdf_bytes)
+}
+
+fn render_first_page_with_cache(url: &str, pdf_bytes: &[u8]) -> Result<RenderedPage, String> {
+    let pdfium = pdfium_auto::bind_bundled().map_err(|e| format!("PDFium init: {e}"))?;
+
+    let document = pdfium
+        .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
+        .map_err(|e| format!("PDF ouverture: {e}"))?;
+
+    let png_bytes = render_page_png(&document, 0)?;
+    let data_url = png_bytes_to_data_url(&png_bytes)?;
+
+    let cache_dir = crate::persistence::rendered_cache_dir();
+    let hash = url_hash(url);
+    let local_path = cache_dir.join(format!("{hash:016x}_0.png"));
+    if std::fs::write(&local_path, &png_bytes).is_ok() {
+        let conn = crate::persistence::db().lock().unwrap();
+        crate::persistence::cache::put_rendered_page(&conn, url, 0, &local_path.to_string_lossy());
+    }
+
+    Ok(RenderedPage {
+        data_url,
+        index: 0,
+    })
+}
+
+fn render_pdf_bytes_with_cache_for_pdfium(
+    pdfium: &Pdfium,
+    url: &str,
+    pdf_bytes: &[u8],
+) -> Result<Vec<RenderedPage>, String> {
 
     let document = pdfium
         .load_pdf_from_byte_vec(pdf_bytes.to_vec(), None)
@@ -247,4 +495,15 @@ fn url_hash(url: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     url.hash(&mut hasher);
     hasher.finish()
+}
+
+fn http_client() -> &'static reqwest::Client {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .pool_max_idle_per_host(8)
+            .tcp_keepalive(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    })
 }

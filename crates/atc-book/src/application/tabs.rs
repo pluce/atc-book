@@ -1,6 +1,21 @@
 use crate::models::{AipDocument, Chart, ExtraTab, WorkspaceChart};
 use crate::state::{AppState, Tab};
 
+fn hydrated_workspace_chart(state: &AppState, workspace_chart: &WorkspaceChart) -> Chart {
+    let current = &workspace_chart.chart;
+    if let Some(fresh) = state.charts.iter().find(|c| {
+        c.source == current.source && c.provider_relative_url == current.provider_relative_url
+    }) {
+        let mut merged = fresh.clone();
+        // Keep workspace identity/title to avoid breaking open_tab references.
+        merged.id = current.id.clone();
+        merged.custom_title = current.custom_title.clone();
+        return merged;
+    }
+
+    current.clone()
+}
+
 pub fn chart_tab_state(tabs: &[Tab], active_tab: Option<usize>) -> (Vec<String>, Option<usize>) {
     let mut ids = Vec::new();
     let mut active_chart_index = None;
@@ -69,9 +84,10 @@ pub fn open_or_focus_atis(state: &mut AppState, icao: String) {
 pub fn open_all_workspace_charts(state: &mut AppState, chart_refs: &[WorkspaceChart]) {
     for wc in chart_refs {
         if !state.tabs.iter().any(|t| t.id == wc.chart.id) {
+            let chart = hydrated_workspace_chart(state, wc);
             state
                 .tabs
-                .push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
+                .push(Tab::chart(chart, wc.airport.clone()));
         }
     }
     if let Some(first) = chart_refs.first() {
@@ -112,9 +128,10 @@ pub fn rebuild_workspace_tabs(
     if !open_tabs.is_empty() {
         for tab_id in open_tabs {
             if let Some(wc) = chart_refs.iter().find(|c| c.chart.id == *tab_id) {
+                let chart = hydrated_workspace_chart(state, wc);
                 state
                     .tabs
-                    .push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
+                    .push(Tab::chart(chart, wc.airport.clone()));
             }
         }
         state.active_tab = active_tab_index.map(|i| (i + 1).min(state.tabs.len().saturating_sub(1)));
@@ -123,9 +140,10 @@ pub fn rebuild_workspace_tabs(
         }
     } else {
         for wc in chart_refs {
+            let chart = hydrated_workspace_chart(state, wc);
             state
                 .tabs
-                .push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
+                .push(Tab::chart(chart, wc.airport.clone()));
         }
         state.active_tab = Some(0);
     }
@@ -144,9 +162,10 @@ pub fn rebuild_popout_tabs(
 
     for tab_id in popout_tabs {
         if let Some(wc) = chart_refs.iter().find(|c| c.chart.id == *tab_id) {
+            let chart = hydrated_workspace_chart(state, wc);
             state
                 .tabs
-                .push(Tab::chart(wc.chart.clone(), wc.airport.clone()));
+                .push(Tab::chart(chart, wc.airport.clone()));
         }
     }
 

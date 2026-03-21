@@ -132,13 +132,42 @@ pub(super) fn DocViewer(chart: crate::models::Chart, zoom: Signal<u32>) -> Eleme
     // Trigger rendering if not yet cached
     if pdf_state.is_none() {
         let chart_id = chart_id.clone();
-        let url = chart.runtime_url();
+        let effective_chart = {
+            let s = state.read();
+            s.charts
+                .iter()
+                .find(|c| {
+                    c.source == chart.source
+                        && c.provider_relative_url == chart.provider_relative_url
+                })
+                .cloned()
+                .unwrap_or_else(|| chart.clone())
+        };
+        let urls = effective_chart.runtime_urls();
         state
             .write()
             .pdf_cache
             .insert(chart_id.clone(), PdfState::Loading);
         spawn(async move {
-            match crate::pdf::fetch_and_render(&url).await {
+            let mut first_pages: Vec<crate::pdf::RenderedPage> = Vec::new();
+            for (idx, url) in urls.iter().enumerate() {
+                match crate::pdf::fetch_and_render_first_page(url).await {
+                    Ok(mut page) => {
+                        page.index = idx;
+                        first_pages.push(page);
+                        state
+                            .write()
+                            .pdf_cache
+                            .insert(chart_id.clone(), PdfState::Partial(first_pages.clone()));
+                    }
+                    Err(e) => {
+                        state.write().pdf_cache.insert(chart_id, PdfState::Error(e));
+                        return;
+                    }
+                }
+            }
+
+            match crate::pdf::fetch_and_render_many(&urls).await {
                 Ok(pages) => {
                     state
                         .write()
@@ -203,6 +232,36 @@ pub(super) fn DocViewer(chart: crate::models::Chart, zoom: Signal<u32>) -> Eleme
                                         alt: "Page {page.index + 1}",
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Some(PdfState::Partial(pages)) => {
+            let z = zoom();
+            let scale = z as f64 / 100.0;
+            let img_width = format!("{}px", (BASE_IMG_WIDTH * scale) as i32);
+            rsx! {
+                div { class: "doc-viewer pdf-active",
+                    div {
+                        class: "pdf-scroll",
+                        id: "pdf-scroll",
+                        div { class: "pdf-scroll-inner",
+                            for page in &pages {
+                                div { class: "pdf-page-container",
+                                    div { class: "pdf-page-number", "Page {page.index + 1}" }
+                                    img {
+                                        class: "pdf-page-img",
+                                        style: "width: {img_width}",
+                                        src: "{page.data_url}",
+                                        alt: "Page {page.index + 1}",
+                                    }
+                                }
+                            }
+                            div { class: "empty-state", style: "padding: 16px 0 8px;",
+                                div { class: "loading-spinner" }
+                                p { style: "margin-top: 12px;", "Loading remaining pages..." }
                             }
                         }
                     }
